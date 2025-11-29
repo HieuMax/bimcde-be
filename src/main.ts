@@ -2,6 +2,7 @@ import express from 'express';
 import { env } from './env';
 import cors from 'cors';
 import { apiRouter } from './routes/router';
+import mongoose from 'mongoose';
 
 const app = express();
 
@@ -15,10 +16,24 @@ const bootstrap = async () => {
   }));
 
   app.use('/api', apiRouter);
+  connectDB()
 
   app.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
   });
+}
+
+const connectDB = async () => {
+  try {
+      await mongoose.connect(env.MONGODB_URL, {
+          serverSelectionTimeoutMS: 1000,
+          socketTimeoutMS: 15000,
+      });
+      console.log('MongoDB connected successfully'); 
+  } catch (error: any) {
+      console.error(`Error connection to mongoDB: ${error.message}`);
+      process.exit(1);
+  }
 }
 
 bootstrap();
