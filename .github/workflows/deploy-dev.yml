@@ -1,0 +1,29 @@
+name: Deploy BE - DEV (Staging)
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Deploy to Vercel (Preview)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_TEAM_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_DEV_PROJECT_ID }}
+          working-directory: ./
+          vercel-args: '--prod=false'
+        env:
+          VERCEL_ENV: preview

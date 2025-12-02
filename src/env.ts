@@ -6,6 +6,6 @@ export const env = {
     APP_TITLE: process?.env.APP_TITLE,
     SWAGGER_VERSION: process?.env.SWAGGER_VERSION,
     SWAGGER_PATH: process?.env.SWAGGER_PATH,
-    WHITE_LISTED_DOMAINS: process?.env.WHITE_LISTED_DOMAINS,
+    WHITE_LISTED_DOMAINS: process?.env.WHITE_LISTED_DOMAINS || ["https://bimcde-fe.vercel.app/"],
     MONGODB_URL: process?.env.MONGODB_URL || 'mongodb://localhost:27017/bimcde',
 }
