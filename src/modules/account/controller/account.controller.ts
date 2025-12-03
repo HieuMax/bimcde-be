@@ -20,7 +20,7 @@ const accountService = new AccountService();
 AccountController.get('/', async (req: Request, res: Response) => {
     try {
         const accounts = await accountService.createAccount(req.body);
-        res.json(accounts);
+        res.json("test get account");
     } catch (error) {
         console.error('Error fetching accounts:', error);
         res.status(500).json({ error: 'Failed to fetch accounts' });
