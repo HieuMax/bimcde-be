@@ -16,6 +16,7 @@ const bootstrap = async () => {
   }));
 
   app.use('/api', apiRouter);
+  logEnv()
   connectDB()
 
   app.listen(env.PORT, () => {
@@ -26,10 +27,9 @@ const bootstrap = async () => {
 const connectDB = async () => {
   try {
       await mongoose.connect(env.MONGODB_URL, {
-          serverSelectionTimeoutMS: 1000,
+          serverSelectionTimeoutMS: 10000,
           socketTimeoutMS: 15000,
       });
-      logEnv()
       console.log('MongoDB connected successfully'); 
   } catch (error: any) {
       console.error(`Error connection to mongoDB: ${error.message}`);
