@@ -1,13 +1,12 @@
-export interface Account {
-    /**
-     * Example:
-     *     
-     */
-    id: string;
-    username: string;
-    email: string;
-    passwordHash: string;
-    createdAt: Date;
-    updatedAt: Date;
-    // more....
+
+export interface IAccount {
+  fullName: string;
+  email: string;
+  password: string;
+  role: "admin" | "user";
+  phone?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  // more....
 }
+
