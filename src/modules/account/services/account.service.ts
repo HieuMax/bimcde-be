@@ -1,61 +1,201 @@
-import bcrypt from "bcryptjs";
-import AccountModel from "../models/account.model";
 import { IAccount } from "../interfaces/account.interface";
 
+import Session from "../interfaces/Session";
+import bcrypt from "bcryptjs";
+import { Types } from "mongoose";
+import {
+  generateRefreshToken,
+  generateToken,
+  verifyRefreshToken,
+} from "../../../utils/authUntil";
+import AccountModel from "../schemas/account.schema";
+
+type AccountData = Pick<IAccount, "email" | "password" | "fullName">;
+
 export default class AccountService {
-  // 1. Tạo Account mới
-  async createAccount(data: Partial<IAccount>) {
-    const { email, password, fullName, role, phone } = data;
+  // Đăng ký tài khoản mới
+  async register(accountData: AccountData) {
+    try {
+      // Kiểm tra dữ liệu đầu vào
+      if (
+        !accountData.email ||
+        !accountData.password ||
+        !accountData.fullName
+      ) {
+        throw new Error("Email, mật khẩu, và họ tên bắt buộc.");
+      }
 
-    // Kiểm tra email đã tồn tại chưa
-    const existingAccount = await AccountModel.findOne({ email });
-    if (existingAccount) {
-      throw new Error("Email already exists");
+      if (accountData.password.length < 6) {
+        throw new Error("Mật khẩu phải có ít nhất 6 ký tự.");
+      }
+      if (accountData.fullName.length > 50) {
+        throw new Error("Họ tên phải ít hơn 50 ký tự.");
+      }
+
+      //   Kiểm tra email đã tồn tại chưa
+      const existingAccount = await AccountModel.findOne({
+        email: accountData.email,
+      });
+      if (existingAccount) {
+        throw new Error("Email đã tồn tại.");
+      }
+
+      //   Tạo tài khoản mới
+      const newAccount = new AccountModel({
+        ...accountData,
+      });
+      newAccount.password = await bcrypt.hash(accountData.password, 10);
+
+      //   Lưu tài khoản và tạo token
+      const savedAccount = await newAccount.save();
+
+      //   Trả về thông tin tài khoản và token
+      const account = savedAccount.toObject();
+
+      return account;
+    } catch (error) {
+      throw error;
     }
-
-    // Mã hóa mật khẩu (Salt round = 10)
-    if (!password) throw new Error("Password is required");
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Tạo user mới
-    const newAccount = new AccountModel({
-      fullName,
-      email,
-      password: hashedPassword, // Lưu password đã mã hóa
-      role: role || "user",
-      phone,
-    });
-
-    await newAccount.save();
-
-    // Trả về data nhưng loại bỏ password để bảo mật
-    const accountResponse = newAccount.toObject();
-    // @ts-ignore
-    delete accountResponse.password;
-
-    return accountResponse;
   }
 
-  // 2. Lấy danh sách tất cả Account
-  async getAllAccounts() {
-    // .select('-password') để không trả về trường password
-    // .lean() để tối ưu hiệu năng query
-    const accounts = await AccountModel.find()
-      .select("-password")
-      .sort({ createdAt: -1 }) // User mới nhất lên đầu
-      .lean();
+  // Đăng nhập tài khoản
+  async login(userData: AccountData) {
+    try {
+      // Kiểm tra dữ liệu đầu vào
+      if (!userData.email || !userData.password) {
+        throw new Error("Email và mật khẩu bắt buộc.");
+      }
 
-    return accounts;
+      if (userData.password.length < 6) {
+        throw new Error("Mật khẩu phải có ít nhất 6 ký tự.");
+      }
+
+      //   Kiểm tra email đã tồn tại chưa
+      const user = await AccountModel.findOne({
+        email: userData.email,
+      });
+      if (!user) {
+        throw new Error("Tài khoản không tồn tại.");
+      }
+      const passwordIsValid = await bcrypt.compare(
+        userData.password,
+        user.password
+      );
+
+      if (!passwordIsValid) {
+        throw new Error("Mật khẩu không đúng.");
+      }
+
+      //   Tạo token
+      const accessToken = generateToken(user._id);
+      const refreshToken = generateRefreshToken(user._id);
+
+      // xóa các session cũ của user
+      await Session.deleteMany({ userId: user._id });
+
+      // Lưu refresh token vào session
+      await Session.create({
+        userId: user._id,
+        refreshToken: refreshToken,
+      });
+
+      //   Trả về thông tin tài khoản và token
+      //   const account = savedAccount.toObject();
+
+      return {
+        user,
+        accessToken,
+        refreshToken,
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 
-  // 3. Xóa Account
-  async deleteAccount(id: string) {
-    const deletedAccount = await AccountModel.findByIdAndDelete(id);
-
-    if (!deletedAccount) {
-      throw new Error("Account not found");
+  async refreshToken(token: string | undefined) {
+    try {
+      if (!token) {
+        throw new Error("Refresh token is required.");
+      }
+      //   kiểm tra refresh token
+      const existingSession = await Session.findOne({ refreshToken: token });
+      if (!existingSession) {
+        throw new Error("Không tìm thấy refresh token.");
+      }
+      // Xác thực refresh token
+      const jwtPayload = verifyRefreshToken(token) as {
+        userId: Types.ObjectId;
+      };
+      const accessToken = generateToken(jwtPayload.userId);
+      return {
+        accessToken: accessToken,
+      };
+    } catch (error) {
+      throw error;
     }
+  }
 
-    return deletedAccount;
+  async logout(userId: Types.ObjectId | undefined) {
+    try {
+      await Session.deleteMany({ userId: userId });
+      return;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getProfile(userId: Types.ObjectId | undefined) {
+    try {
+      const user = await AccountModel.findById(userId).select("-password");
+      if (!user) {
+        throw new Error("Tài khoản không tồn tại.");
+      }
+      return { user };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async changePassword(
+    userId: Types.ObjectId | undefined,
+    body: { currentPassword: string; newPassword: string }
+  ) {
+    try {
+      const user = await AccountModel.findById(userId);
+      if (!user) {
+        throw new Error("Tài khoản không tồn tại.");
+      }
+      const passwordIsValid = await bcrypt.compare(
+        body.currentPassword,
+        user.password
+      );
+      if (!passwordIsValid) {
+        throw new Error("Mật khẩu hiện tại không đúng.");
+      }
+      if (body.newPassword.length < 6) {
+        throw new Error("Mật khẩu mới phải có ít nhất 6 ký tự.");
+      }
+      user.password = await bcrypt.hash(body.newPassword, 10);
+      await user.save();
+      return { message: "Đổi mật khẩu thành công." };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateProfile(userId: Types.ObjectId | undefined, body: AccountData) {
+    try {
+      const user = await AccountModel.findById(userId);
+      if (!user) {
+        throw new Error("Tài khoản không tồn tại.");
+      }
+      if (body) {
+        user.fullName = body.fullName;
+      }
+      await user.save();
+      return { user };
+    } catch (error) {
+      throw error;
+    }
   }
 }
