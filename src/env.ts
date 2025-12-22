@@ -1,6 +1,6 @@
-import process from "process";;
+import process from "process";
 import dotenv from "dotenv";
-import ms from "ms";;
+import ms from "ms";
 
 dotenv.config();
 
