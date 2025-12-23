@@ -11,10 +11,11 @@ export const env = {
   SWAGGER_VERSION: process?.env.SWAGGER_VERSION,
   SWAGGER_PATH: process?.env.SWAGGER_PATH,
   MONGODB_URL: process?.env.MONGODB_CLOUD_URL || 'mongodb://localhost:27017/bimcde',
-  WHITE_LISTED_DOMAINS: process?.env.WHITE_LISTED_DOMAINS || [
-    "https://bimcde-fe.vercel.app/",
-    'https://bimcde-fe-dev.vercel.app/'
-  ],
+  WHITE_LISTED_DOMAINS: process.env.WHITE_LISTED_DOMAINS
+    ? JSON.parse(process.env.WHITE_LISTED_DOMAINS)
+    : [
+        "http://localhost:3000",
+      ],
   JWT_ACESS_TOKEN_SECRET: process.env.JWT_ACESS_TOKEN_SECRET,
   JWT_REFRESH_TOKEN_SECRET: process.env.JWT_REFRESH_TOKEN_SECRET,
   ACCESS_TOKEN_EXPIRES_IN: process.env
