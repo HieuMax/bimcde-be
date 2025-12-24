@@ -47,7 +47,7 @@ const FileSchema: Schema = new Schema(
 );
 
 FileSchema.index(
-  { folderId: 1, name: 1 },
+  { folderId: 1, name: 1, projectId: 1 },
   { unique: true, partialFilterExpression: { isDeleted: false } }
 );
 FileSchema.index({ folderId: 1, size: 1 });
