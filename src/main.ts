@@ -4,7 +4,29 @@ import cors from 'cors';
 import { apiRouter } from './routes/router';
 import mongoose from 'mongoose';
 
+import projectRoutes from './modules/projects/project.routes'
+import explorerRoutes from './modules/explorer/explorer.routes'
+import fileRoutes from './modules/file/file.routes';
+import viewRoutes from './modules/view/view.routes';
+import todoRoutes from './modules/todo/todo.routes';
+
 const app = express();
+
+  app.use(
+    cors({
+      origin: ['http://localhost:3000'],
+      credentials: true,
+    })
+  );
+
+  app.use('/api', apiRouter);
+
+  app.use('/api/files', fileRoutes);
+  app.use('/api', viewRoutes);
+  app.use('/api', todoRoutes);
+
+  app.use('/api', projectRoutes);
+  app.use('/api', explorerRoutes);
 
 const bootstrap = async () => {
   app.use(express.json());
@@ -23,7 +45,6 @@ const bootstrap = async () => {
     console.log(`Server is running on port ${env.PORT}`);
   });
 }
-
 const connectDB = async () => {
   try {
       await mongoose.connect(env.MONGODB_URL, {
