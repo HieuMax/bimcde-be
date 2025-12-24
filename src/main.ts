@@ -18,7 +18,17 @@ const bootstrap = async () => {
   app.use(express.urlencoded({ extended: true }));
   app.use(
     cors({
-      origin: process.env.WHITE_LISTED_DOMAINS?.split(",") || [],
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+
+        if (env.WHITE_LISTED_DOMAINS.includes(origin)) {
+          callback(null, true);
+        } else {
+          console.log("Blocked by CORS:", origin);
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
+      credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE"],
     })
   );
