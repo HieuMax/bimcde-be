@@ -84,6 +84,7 @@ export default class FileService {
     let existingFile = await FileModel.findOne({
       folderId: validFolderId,
       name: fileData.originalname,
+      projectId: new Types.ObjectId(projectId),
       isDeleted: false,
     });
 
@@ -148,25 +149,20 @@ export default class FileService {
     destinationFolderId: string | null,
     userId: string
   ) {
-    // 1. Kiểm tra file nguồn có tồn tại không
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found"); // Hoặc throw new AppError("File not found", 404);
 
-    // 2. [FIX LOGIC] Xử lý Destination
     let destFolderIdObj: Types.ObjectId | null = null;
 
-    // Chỉ tìm folder đích nếu ID hợp lệ và KHÔNG phải là các giá trị đại diện cho Root ("null", "", null)
     if (
       destinationFolderId &&
       destinationFolderId !== "null" &&
       destinationFolderId !== ""
     ) {
-      // Validate ID hợp lệ của MongoDB
       if (!Types.ObjectId.isValid(destinationFolderId)) {
         throw new Error("Invalid destination folder ID");
       }
 
-      // Tìm folder đích trong DB
       const destFolder = await FolderModel.findOne({
         _id: destinationFolderId,
         isDeleted: false,
@@ -176,12 +172,11 @@ export default class FileService {
 
       destFolderIdObj = destFolder._id;
     }
-    // Nếu không lọt vào if trên -> destFolderIdObj vẫn là null (tức là Root)
 
-    // 3. Check trùng tên tại đích (destFolderIdObj có thể là null hoặc ObjectId)
     const duplicate = await FileModel.findOne({
       folderId: destFolderIdObj,
       name: file.name,
+      projectId: file.projectId,
       isDeleted: false,
     });
 
@@ -191,14 +186,83 @@ export default class FileService {
       );
     }
 
-    // 4. Check Lock
     if (file.isLocked && file.lockedBy?.toString() !== userId) {
       throw new Error("File is locked by another user. Cannot move.");
     }
 
-    // 5. Cập nhật và lưu
     file.folderId = destFolderIdObj;
     return await file.save();
+  }
+
+  // --- US43: Bulk Move Files (All-or-Nothing) ---
+  async moveManyFiles(
+    fileIds: string[],
+    destinationFolderId: string | null,
+    userId: string
+  ) {
+    const sourceFiles = await FileModel.find({
+      _id: { $in: fileIds },
+      isDeleted: false,
+    });
+
+    if (sourceFiles.length === 0)
+      throw new Error("No valid files found to move");
+
+    const projectId = sourceFiles[0].projectId;
+
+    let destFolderIdObj: Types.ObjectId | null = null;
+
+    if (
+      destinationFolderId &&
+      destinationFolderId !== "null" &&
+      destinationFolderId !== ""
+    ) {
+      if (!Types.ObjectId.isValid(destinationFolderId)) {
+        throw new Error("Invalid destination folder ID");
+      }
+      const destFolder = await FolderModel.findOne({
+        _id: destinationFolderId,
+        isDeleted: false,
+      });
+
+      if (!destFolder) throw new Error("Destination folder not found");
+
+      if (destFolder.projectId.toString() !== projectId.toString()) {
+        throw new Error("Cannot move files to another project");
+      }
+
+      destFolderIdObj = destFolder._id;
+    }
+
+    const sourceFileNames = sourceFiles.map((f) => f.name);
+
+    const duplicateFiles = await FileModel.find({
+      folderId: destFolderIdObj,
+      projectId: projectId, // Check trong cùng project
+      name: { $in: sourceFileNames }, // So khớp danh sách tên
+      isDeleted: false,
+    });
+
+    if (duplicateFiles.length > 0) {
+      const duplicateNames = duplicateFiles.map((f) => f.name).join(", ");
+      throw new Error(
+        `Destination already contains files with names: ${duplicateNames}. Move cancelled.`
+      );
+    }
+
+    const lockedFile = sourceFiles.find(
+      (f) => f.isLocked && f.lockedBy?.toString() !== userId
+    );
+    if (lockedFile) {
+      throw new Error(`File "${lockedFile.name}" is locked. Move cancelled.`);
+    }
+
+    const result = await FileModel.updateMany(
+      { _id: { $in: fileIds } },
+      { $set: { folderId: destFolderIdObj } }
+    );
+
+    return result;
   }
 
   // --- US51: Check in / check out folder / file ---
@@ -520,14 +584,10 @@ export default class FileService {
       const validTagIds = tagIds.filter((id) => id);
       const tagObjectIds = validTagIds.map((id) => new Types.ObjectId(id));
 
-      console.log("DEBUG: Querying files with IDs:", objectIds);
-
       const result = await FileModel.updateMany(
         { _id: { $in: objectIds }, isDeleted: false },
         { $set: { tags: tagObjectIds } }
       );
-
-      console.log("DEBUG: Update result:", result);
 
       // Return the updated files with populated tags
       const updatedFiles = await FileModel.find({

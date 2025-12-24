@@ -5,7 +5,7 @@ import { apiRouter } from "./routes/router";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 const bodyParser = require("body-parser");
-import { startCleanupJob } from './modules/system/services/cleanup.service';
+import { startCleanupJob } from "./modules/system/services/cleanup.service";
 
 const app = express();
 
@@ -17,24 +17,21 @@ const bootstrap = async () => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(
-    
     cors({
-        origin: process.env.WHITE_LISTED_DOMAINS?.split(",") || [],
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true,
-      })
-  ,
+      origin: process.env.WHITE_LISTED_DOMAINS?.split(",") || [],
+      methods: ["GET", "POST", "PUT", "DELETE"],
+    })
   );
 
   app.use("/api", apiRouter);
-  logEnv();;
-  connectDB();;
+  logEnv();
+  connectDB();
   startCleanupJob();
   app.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
     console.log(`API URL: ${env.APP_URL}`);
   });
-};;
+};
 
 const connectDB = async () => {
   try {

@@ -94,6 +94,34 @@ FileController.put(
 );
 
 /**
+ * POST /api/files/move-bulk
+ * Body: { fileIds: ["..."], destinationFolderId: "...", userId: "..." }
+ * Desc: Move multiple files to a folder (All-or-Nothing logic).
+ */
+FileController.post(
+  "/move-bulk",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { fileIds, destinationFolderId, userId } = req.body;
+
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      throw new AppError("fileIds must be a non-empty array", 400);
+    }
+
+    const result = await fileService.moveManyFiles(
+      fileIds,
+      destinationFolderId,
+      userId
+    );
+
+    res.json({
+      success: true,
+      message: "Moved successfully",
+      data: result,
+    });
+  })
+);
+
+/**
  * POST /api/files/:id/lock
  * Body: { action: "LOCK" | "UNLOCK" }
  * Desc: Lock or unlock a file.
@@ -215,7 +243,6 @@ FileController.post(
   "/bulk-tags",
   asyncHandler(async (req: Request, res: Response) => {
     const { fileIds, tagIds } = req.body;
-    console.log("Bulk Tags Payload:", JSON.stringify(req.body, null, 2));
 
     if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
       throw new AppError("No files selected", 400);
