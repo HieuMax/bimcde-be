@@ -198,4 +198,17 @@ export default class AccountService {
       throw error;
     }
   }
+
+  async getAllUser(userId: Types.ObjectId | undefined) {
+    try {
+      if (!userId) {
+        throw new Error("User không hợp lệ.");
+      }
+
+      const users = await AccountModel.find();
+      return users;
+    } catch (error) {
+      throw error;
+    }
+  }
 }

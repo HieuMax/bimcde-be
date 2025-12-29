@@ -5,4 +5,5 @@ export interface IProjectMember {
   userId: Types.ObjectId;
   role?: string;
   invitedAt?: Date;
+  lastAccessed?: Date;
 }
