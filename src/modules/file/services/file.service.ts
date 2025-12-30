@@ -14,6 +14,27 @@ export default class FileService {
     return await FileModel.find();
   }
 
+  async getById(fileId: string) {
+    const file = await FileModel.findOne({
+      _id: fileId,
+      isDeleted: false,
+    })
+      .populate("folderId", "name parentId")
+      .lean();
+
+    if (!file) throw new Error("File not found");
+
+    const latestVersion = file.versions[file.versions.length - 1];
+
+    return {
+      ...file,
+      latestVersion,
+      location: latestVersion
+        ? `${process.env.API_URL}/files/${file._id}/download`
+        : null,
+    };
+  }
+
   // RENAME FILE
   async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });

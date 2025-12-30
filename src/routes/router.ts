@@ -13,9 +13,10 @@ import TopicsController from "../modules/topic/controllers/topics.controller";
 
 const apiRouter = express.Router();
 
+apiRouter.use("/files", FileController);
 apiRouter.use("/accounts", AccountController);
 apiRouter.use("/folders", FolderController);
-apiRouter.use("/files", FileController);
+
 apiRouter.use("/explorer", ExplorerController);
 apiRouter.use("/cleanup", CleanupController);
 apiRouter.use("/comments", CommentController);

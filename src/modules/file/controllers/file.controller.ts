@@ -53,6 +53,8 @@ FileController.post(
   })
 );
 
+
+
 /**
  * GET /api/files?folderId=...
  * Query: { folderId }s)
@@ -255,6 +257,13 @@ FileController.post(
 
     const result = await fileService.assignTags(fileIds, tagIds || []);
     res.json(result);
+  })
+);
+FileController.get(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const file = await fileService.getById(req.params.id);
+    res.json(file);
   })
 );
 
