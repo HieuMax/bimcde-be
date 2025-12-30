@@ -7,6 +7,7 @@ import { s3Client } from "../../../lib/r2.lib";
 import archiver from "archiver";
 import { Response } from "express";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { AppError } from "../../../utils/AppError";
 import path from "path";
 
 export default class FileService {
@@ -141,6 +142,18 @@ export default class FileService {
       folderId: folderId,
       isDeleted: false,
     }).populate("tags");
+  }
+
+  // --- US39: Get File Details ---
+  async getFileDetail(fileId: string) {
+    const file = await FileModel.findOne({ _id: fileId, isDeleted: false })
+      .populate("tags") // Lấy chi tiết Tags
+      .populate("lockedBy", "fullName avatar email") // Lấy thông tin người đang lock
+      .populate("versions.uploadedBy", "fullName avatar email"); // Lấy thông tin người upload version
+
+    if (!file) throw new AppError("File not found", 404);
+
+    return file;
   }
 
   // --- US43: Move folder / file to … ---
