@@ -6,6 +6,7 @@ import { env } from "../../../env";
 import FileService from "../services/file.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
+import { Types } from "mongoose";
 
 const FileController = express.Router();
 const fileService = new FileService();
@@ -255,6 +256,23 @@ FileController.post(
 
     const result = await fileService.assignTags(fileIds, tagIds || []);
     res.json(result);
+  })
+);
+
+/**
+ * GET /api/files/:id
+ * Desc: Get details of a specific file.
+ * NOTE: Place this AFTER /download and /all routes to avoid conflict.
+ */
+FileController.get(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) throw new AppError("Invalid File ID", 400);
+
+    const file = await fileService.getFileDetail(id);
+    res.json(file);
   })
 );
 
