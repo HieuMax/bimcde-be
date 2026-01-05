@@ -10,6 +10,7 @@ import { ProjectController } from "../modules/project/controllers/project.contro
 import { PermissionsController } from "../modules/permission/controllers/permissions.controller";
 import { UnitController } from "../modules/unit/controllers/unit.controller";
 import TopicsController from "../modules/topic/controllers/topics.controller";
+import { TeamController } from "../modules/team/controllers/team.controllers";
 
 const apiRouter = express.Router();
 
@@ -24,5 +25,6 @@ apiRouter.use("/projects", ProjectController);
 apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
+apiRouter.use("/team", TeamController);
 
 export { apiRouter };

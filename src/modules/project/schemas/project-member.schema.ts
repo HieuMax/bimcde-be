@@ -17,6 +17,10 @@ const projectMemberSchema = new Schema<IProjectMember>(
       type: Date,
       default: Date.now,
     },
+    lastAccessed: {
+      type: Date,
+      default: Date.now,
+    },
     role: {
       type: String,
       enum: ["user", "admin"],
