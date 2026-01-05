@@ -258,4 +258,19 @@ FileController.post(
   })
 );
 
+/**
+ * GET /api/files/:id
+ * Desc: Get file detail by id
+ */
+FileController.get(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const file = await fileService.getFileById(id);
+    if (!file) throw new AppError("File not found", 404);
+
+    res.json(file);
+  })
+);
 export { FileController };
