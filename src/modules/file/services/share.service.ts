@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import { AppError } from "../../../utils/AppError";
 import FileModel from "../schemas/file.schema";
+import { Types } from "mongoose"
 
 // Cấu hình Transporter (Nên tách ra file config riêng)
 const transporter = nodemailer.createTransport({
@@ -13,10 +14,10 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export default class FileService {
+export default class ShareService {
   async shareFile(payload: {
     fileId: string;
-    userId: string;
+    userId: Types.ObjectId;
     type: "SPECIFIC" | "INTERNAL_LINK" | "PUBLIC_LINK";
     recipients: string[]; // Mảng email
     note?: string;
@@ -41,17 +42,23 @@ export default class FileService {
       showLatestVersion: payload.showLatestVersion,
       token: token,
     });
-
-    // 2. Xử lý Gửi Mail (Chỉ gửi nếu có danh sách người nhận)
-    if (payload.recipients && payload.recipients.length > 0) {
-      // Tạo Link Share (Logic tùy loại)
-      let shareLink = "";
-      if (payload.type === "PUBLIC_LINK") {
-        shareLink = `${process.env.APP_URL}/share/public/${token}`;
+    // 2. Tạo shareLink (dùng cho trả về cho client và gửi mail)
+    let shareLink = "";
+    if (payload.type === "PUBLIC_LINK") {
+      shareLink = `${process.env.APP_URL?.replace(/\/$/, "")}/share/public/${token}`;
+    } else {
+      // default: link to viewer with shareToken
+      // We try to use APP_URL and file.projectId if available
+      const projectId = (file as any).projectId || "";
+      if (projectId) {
+        shareLink = `${process.env.APP_URL?.replace(/\/$/, "")}/projects/${projectId}/viewer/${payload.fileId}?shareToken=${token}`;
       } else {
-        shareLink = `${process.env.APP_URL}/explorer?fileId=${payload.fileId}`;
+        shareLink = `${process.env.APP_URL?.replace(/\/$/, "")}/share/${token}`;
       }
+    }
 
+    // 3. Xử lý Gửi Mail (Chỉ gửi nếu có danh sách người nhận)
+    if (payload.recipients && payload.recipients.length > 0) {
       // Gửi mail bất đồng bộ (không await để tránh user phải đợi lâu)
       this.sendShareEmails(
         payload.recipients,
@@ -61,7 +68,7 @@ export default class FileService {
       ).catch((err) => console.error("Email error:", err));
     }
 
-    return shareRecord;
+    return { shareRecord, shareLink };
   }
 
   // Helper gửi mail

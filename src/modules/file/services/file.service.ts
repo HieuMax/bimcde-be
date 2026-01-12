@@ -3,13 +3,13 @@ import { IFile } from "../interfaces/file.interface";
 import { Types } from "mongoose";
 import { env } from "../../../env";
 import FolderModel from "../../folder/schemas/folder.schema";
+import ProjectModel from "../../project/schemas/project.schema";
 import { s3Client } from "../../../lib/r2.lib";
 import archiver from "archiver";
 import { Response } from "express";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { AppError } from "../../../utils/AppError";
 import path from "path";
-
 export default class FileService {
   async getAllFiles() {
     return await FileModel.find();
@@ -145,15 +145,88 @@ export default class FileService {
   }
 
   // --- US39: Get File Details ---
-  async getFileDetail(fileId: string) {
-    const file = await FileModel.findOne({ _id: fileId, isDeleted: false })
-      .populate("tags") // Lấy chi tiết Tags
-      .populate("lockedBy", "fullName avatar email") // Lấy thông tin người đang lock
-      .populate("versions.uploadedBy", "fullName avatar email"); // Lấy thông tin người upload version
+  // async getFileDetail(fileId: string) {
+  //   const file = await FileModel.findOne({ _id: fileId, isDeleted: false })
+  //     .populate("tags") // Lấy chi tiết Tags
+  //     .populate("lockedBy", "fullName avatar email") // Lấy thông tin người đang lock
+  //     .populate("versions.uploadedBy", "fullName avatar email"); // Lấy thông tin người upload version
 
-    if (!file) throw new AppError("File not found", 404);
+  //   if (!file) throw new AppError("File not found", 404);
 
-    return file;
+  //   return file;
+  // }
+
+async getFileDetail(fileId: string) {
+  const file = await FileModel.findOne({ _id: fileId, isDeleted: false })
+    .populate("tags")
+    .populate("lockedBy", "fullName avatar email")
+    .populate("versions.uploadedBy", "fullName avatar email")
+    .populate("folderId", "name path projectId")
+    .populate("projectId", "_id name");
+
+  if (!file) throw new AppError("File not found", 404);
+
+  const currentVersion = file.versions.find(
+    (v) => v.version === file.currentVersion
+  );
+
+  if (!currentVersion) {
+    throw new AppError("Current version not found", 500);
+  }
+
+  const projectObjectId = new Types.ObjectId(
+    typeof file.projectId === "object"
+      ? (file.projectId as any)._id
+      : file.projectId
+  );
+
+  const folderObjectId = file.folderId
+    ? new Types.ObjectId((file.folderId as any)._id)
+    : null;
+  const location = await buildFolderBreadcrumb(
+    projectObjectId,
+    folderObjectId
+  );
+  
+  console.log("🧩 projectObjectId =", projectObjectId.toString());
+  console.log("🧩 folderObjectId =", folderObjectId?.toString());
+
+  const createdBy =
+    typeof currentVersion.uploadedBy === "object" &&
+    "fullName" in currentVersion.uploadedBy
+      ? currentVersion.uploadedBy.fullName
+      : "--";
+
+  return {
+      _id: file._id.toString(),
+      name: file.name,
+
+      projectId: file.projectId, // Trả về object để frontend dùng nếu cần
+      projectName: (file.projectId as any)?.name,
+
+      folderId: file.folderId?._id ?? null,
+      folderName: (file.folderId as any)?.name ?? null,
+      
+      currentVersion: file.currentVersion,
+      size: currentVersion.size,
+      mimeType: currentVersion.mimeType,
+      fileUrl: currentVersion.location,
+
+      location: location, // <--- Giá trị này giờ sẽ chuẩn: "Project Name / Folder A / Folder B"
+
+      createdAt: currentVersion.createdAt,
+      createdBy,
+      updatedAt: file.updatedAt,
+      modifiedBy: createdBy,
+
+      isLocked: file.isLocked,
+      lockedBy:
+        file.isLocked && file.lockedBy && typeof file.lockedBy === "object"
+          ? (file.lockedBy as any).fullName
+          : undefined,
+
+      tags: file.tags ?? [],
+    };
   }
 
   // --- US43: Move folder / file to … ---
@@ -614,4 +687,61 @@ export default class FileService {
       throw error;
     }
   }
+}
+export async function buildFolderBreadcrumb(
+  projectId: Types.ObjectId,
+  folderId: Types.ObjectId | null
+): Promise<string> {
+  console.log("🧭 [BREADCRUMB] projectId =", projectId?.toString());
+  console.log("🧭 [BREADCRUMB] folderId =", folderId?.toString());
+  // 1️⃣ Project
+  const project = await ProjectModel.findById(projectId)
+    .select("name")
+    .lean();
+
+  const projectName = project?.name ?? "Project";
+
+  // 2️⃣ File ở root
+  if (!folderId) {
+    return projectName;
+  }
+
+  // 3️⃣ Folder hiện tại
+  const folder = await FolderModel.findById(folderId)
+    .select("name path")
+    .lean();
+
+  if (!folder) {
+    return projectName;
+  }
+
+  // 4️⃣ Folder cấp 1
+  if (!folder.path || folder.path.trim() === "") {
+    return `${projectName} / ${folder.name}`;
+  }
+
+  // 5️⃣ Ancestors
+  const ids = folder.path
+    .split(",")
+    .filter(id => Types.ObjectId.isValid(id))
+    .map(id => new Types.ObjectId(id));
+
+  if (ids.length === 0) {
+    return `${projectName} / ${folder.name}`;
+  }
+
+  const parents = await FolderModel.find(
+    { _id: { $in: ids } },
+    { name: 1 }
+  ).lean();
+
+  const map = new Map(
+    parents.map(p => [p._id.toString(), p.name])
+  );
+
+  const breadcrumb = ids
+    .map(id => map.get(id.toString()))
+    .filter(Boolean);
+
+  return [projectName, ...breadcrumb, folder.name].join(" / ");
 }

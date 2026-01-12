@@ -1,3 +1,4 @@
+// bimcde-be\src\modules\file\schemas\file.schema.ts
 import mongoose, { Schema } from "mongoose";
 import { IFile } from "../interfaces/file.interface";
 

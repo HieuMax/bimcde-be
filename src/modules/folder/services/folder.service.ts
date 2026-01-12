@@ -5,18 +5,14 @@ import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
 
 export default class FolderService {
-  // --- Get Folder Contents ---
+  /* =========================
+   * GET FOLDER CONTENTS
+   * ========================= */
   async getFolderContents(projectId: string, parentId: string | null = null) {
-    // const query: any = {
-    //   projectId: new Types.ObjectId(projectId),
-    //   isDeleted: false,
-    //   parentId: parentId ? new Types.ObjectId(parentId) : null,
-    // };
-    // return await FolderModel.find(query).sort({ createdAt: -1 }).lean();
     const projectObjId = new Types.ObjectId(projectId);
     const parentObjId = parentId ? new Types.ObjectId(parentId) : null;
 
-    const folders = await FolderModel.aggregate([
+    return await FolderModel.aggregate([
       {
         $match: {
           projectId: projectObjId,
@@ -49,45 +45,48 @@ export default class FolderService {
           hasChildren: { $gt: [{ $size: "$children" }, 0] },
         },
       },
-      {
-        $project: {
-          children: 0,
-        },
-      },
+      { $project: { children: 0 } },
       { $sort: { createdAt: -1 } },
     ]);
-
-    return folders;
   }
 
-  // --- US36: Create folder ---
+  /* =========================
+   * CREATE FOLDER
+   * ========================= */
   async createFolder(data: Partial<IFolder>): Promise<IFolder> {
-    let path = ",";
+    let path: string | null = null;
 
     if (data.parentId) {
       const parentFolder = await FolderModel.findById(data.parentId).lean();
       if (!parentFolder) throw new AppError("Parent folder not found", 404);
-      path = `${parentFolder.path}${parentFolder._id},`;
+
+      path = parentFolder.path
+        ? `${parentFolder.path},${parentFolder._id}`
+        : `${parentFolder._id}`;
     }
 
     const duplicate = await FolderModel.findOne({
       projectId: data.projectId,
-      parentId: data.parentId || null,
+      parentId: data.parentId ?? null,
       name: data.name,
       isDeleted: false,
     });
-    if (duplicate)
+    if (duplicate) {
       throw new AppError("Folder name already exists in this location", 400);
+    }
 
     const newFolder = new FolderModel({
       ...data,
-      path: path,
+      parentId: data.parentId ?? null,
+      path,
       currentVersion: 1,
       versions: [
         {
           version: 1,
           name: data.name,
-          updatedBy: new Types.ObjectId(data.createdBy),
+          updatedBy: data.createdBy
+            ? new Types.ObjectId(data.createdBy)
+            : undefined,
           createdAt: new Date(),
         },
       ],
@@ -96,7 +95,9 @@ export default class FolderService {
     return await newFolder.save();
   }
 
-  // --- US: RENAME ---
+  /* =========================
+   * RENAME FOLDER
+   * ========================= */
   async renameFolder(folderId: string, newName: string, userId: string) {
     const folder = await FolderModel.findOne({
       _id: folderId,
@@ -127,7 +128,9 @@ export default class FolderService {
     return await folder.save();
   }
 
-  // --- US42: Delete folder / file) ---
+  /* =========================
+   * DELETE FOLDER (CASCADE)
+   * ========================= */
   async deleteFolder(folderId: string, userId: string) {
     const folder = await FolderModel.findOne({
       _id: folderId,
@@ -135,16 +138,30 @@ export default class FolderService {
     });
     if (!folder) throw new AppError("Folder not found", 404);
 
+    // Find all descendants by path prefix
+    const prefix = folder.path
+      ? `${folder.path},${folder._id}`
+      : `${folder._id}`;
+
     const subFolders = await FolderModel.find({
-      path: { $regex: `,${folderId},` },
+      $or: [
+        { path: prefix },
+        { path: { $regex: `^${prefix},` } },
+      ],
       isDeleted: false,
     }).select("_id");
 
     const allIds = [folder._id, ...subFolders.map((f) => f._id)];
-    const deletePayload = { isDeleted: true, deletedAt: new Date() };
+    const deletePayload = {
+      isDeleted: true,
+      deletedAt: new Date(),
+    };
 
     await Promise.all([
-      FolderModel.updateMany({ _id: { $in: allIds } }, { $set: deletePayload }),
+      FolderModel.updateMany(
+        { _id: { $in: allIds } },
+        { $set: deletePayload }
+      ),
       FileModel.updateMany(
         { folderId: { $in: allIds } },
         { $set: deletePayload }
@@ -152,7 +169,9 @@ export default class FolderService {
     ]);
   }
 
-  // --- US43: Move folder / file to … ---
+  /* =========================
+   * MOVE FOLDER
+   * ========================= */
   async moveFolder(
     folderId: string,
     destinationParentId: string | null,
@@ -164,24 +183,38 @@ export default class FolderService {
     });
     if (!folder) throw new AppError("Folder not found", 404);
 
-    let newPath = ",";
+    let newPath: string | null = null;
     let destParentIdObj: Types.ObjectId | null = null;
 
     if (destinationParentId) {
-      if (destinationParentId === folderId)
+      if (destinationParentId === folderId) {
         throw new AppError("Cannot move folder into itself", 400);
+      }
 
       const destFolder = await FolderModel.findOne({
         _id: destinationParentId,
         isDeleted: false,
       });
-      if (!destFolder) throw new AppError("Destination folder not found", 404);
+      if (!destFolder)
+        throw new AppError("Destination folder not found", 404);
 
-      if (destFolder.path.includes(folderId)) {
-        throw new AppError("Cannot move a folder into its own sub-folder", 400);
+      const selfPrefix = folder.path
+        ? `${folder.path},${folder._id}`
+        : `${folder._id}`;
+
+      if (
+        destFolder._id.equals(folder._id) ||
+        (destFolder.path && destFolder.path.startsWith(selfPrefix))
+      ) {
+        throw new AppError(
+          "Cannot move a folder into its own sub-folder",
+          400
+        );
       }
 
-      newPath = `${destFolder.path}${destFolder._id},`;
+      newPath = destFolder.path
+        ? `${destFolder.path},${destFolder._id}`
+        : `${destFolder._id}`;
       destParentIdObj = destFolder._id;
     }
 
@@ -191,21 +224,27 @@ export default class FolderService {
       name: folder.name,
       isDeleted: false,
     });
-    if (duplicate)
+    if (duplicate) {
       throw new AppError(
         `Folder "${folder.name}" already exists in destination`,
         400
       );
+    }
 
-    const oldPath = `${folder.path}${folder._id},`;
-    const newPathWithSelf = `${newPath}${folder._id},`;
+    const oldPrefix = folder.path
+      ? `${folder.path},${folder._id}`
+      : `${folder._id}`;
+
+    const newPrefix = newPath
+      ? `${newPath},${folder._id}`
+      : `${folder._id}`;
 
     folder.parentId = destParentIdObj;
     folder.path = newPath;
     await folder.save();
 
     const subFolders = await FolderModel.find({
-      path: { $regex: `^${oldPath}` },
+      path: { $regex: `^${oldPrefix},` },
       isDeleted: false,
     });
 
@@ -214,7 +253,11 @@ export default class FolderService {
         updateOne: {
           filter: { _id: sub._id },
           update: {
-            $set: { path: sub.path.replace(oldPath, newPathWithSelf) },
+            $set: {
+              path: sub.path
+                ? sub.path.replace(oldPrefix, newPrefix)
+                : newPrefix,
+            },
           },
         },
       }));
@@ -224,34 +267,27 @@ export default class FolderService {
     return folder;
   }
 
+  /* =========================
+   * OTHER
+   * ========================= */
   async getAllFolders() {
     return await FolderModel.find();
   }
 
-  // --- Bulk Assign Tags ---
   async assignTags(folderIds: string[], tagIds: string[]) {
-    try {
-      const objectIds = folderIds.map((id) => new Types.ObjectId(id));
-      const validTagIds = tagIds.filter((id) => id);
-      const tagObjectIds = validTagIds.map((id) => new Types.ObjectId(id));
+    const objectIds = folderIds.map((id) => new Types.ObjectId(id));
+    const tagObjectIds = tagIds
+      .filter(Boolean)
+      .map((id) => new Types.ObjectId(id));
 
-      const result = await FolderModel.updateMany(
-        { _id: { $in: objectIds }, isDeleted: false },
-        { $set: { tags: tagObjectIds } }
-      );
+    await FolderModel.updateMany(
+      { _id: { $in: objectIds }, isDeleted: false },
+      { $set: { tags: tagObjectIds } }
+    );
 
-      // Return updated folders
-      // Note: If FolderModel.tags is ref to Tag, we populate.
-      // Based on FileService usage, it seems consistent.
-      const updatedFolders = await FolderModel.find({
-        _id: { $in: objectIds },
-        isDeleted: false,
-      }).populate("tags");
-
-      return updatedFolders;
-    } catch (error) {
-      console.error("Folder assignTags error", error);
-      throw error;
-    }
+    return await FolderModel.find({
+      _id: { $in: objectIds },
+      isDeleted: false,
+    }).populate("tags");
   }
 }

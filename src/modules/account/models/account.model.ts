@@ -32,9 +32,8 @@ const accountSchema = new Schema<IAccount>(
   { timestamps: true }
 );
 
-// Export Model với Interface IAccount
-const AccountModel: Model<IAccount> = mongoose.model<IAccount>(
-  "Account",
-  accountSchema
-);
+const AccountModel: Model<IAccount> =
+  mongoose.models.Account ||
+  mongoose.model<IAccount>("Account", accountSchema);
+
 export default AccountModel;

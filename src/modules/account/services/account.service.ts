@@ -198,4 +198,19 @@ export default class AccountService {
       throw error;
     }
   }
+  async searchAccounts(query: string) {
+    const regex = new RegExp(query, "i");
+
+    const users = await AccountModel.find({
+      $or: [
+        { email: regex },
+        { fullName: regex },
+      ],
+    })
+      .select("_id email fullName")
+      .limit(10);
+
+    return users;
+  }
+
 }

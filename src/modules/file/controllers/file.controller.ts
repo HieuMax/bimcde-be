@@ -1,15 +1,21 @@
+// bimcde-be\src\modules\file\controllers\file.controller.ts
 import express, { Request, Response } from "express";
 import multer from "multer";
 import multerS3 from "multer-s3";
 import { s3Client } from "../../../lib/r2.lib"; // Import client ở bước 1
 import { env } from "../../../env";
 import FileService from "../services/file.service";
+import ShareService from "../services/share.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
+
 import { Types } from "mongoose";
+
+import { authenticate } from "../../../middlewares/authMiddlewares";
 
 const FileController = express.Router();
 const fileService = new FileService();
+const shareService = new ShareService();
 
 // Multer configuration for R2
 const upload = multer({
@@ -259,19 +265,62 @@ FileController.post(
   })
 );
 
+FileController.post(
+  "/share",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const {
+      fileId,
+      type,
+      recipients,
+      note,
+      expiresAt,
+      accessLevel,
+      showLatestVersion,
+    } = req.body;
+
+    if (!fileId) throw new AppError("fileId is required", 400);
+
+    const result = await shareService.shareFile({
+      fileId,
+      userId: req.userId!,
+      type,
+      recipients: recipients || [],
+      note,
+      expiresAt,
+      accessLevel,
+      showLatestVersion,
+    });
+
+    // result: { shareRecord, shareLink }
+    res.status(200).json({
+      success: true,
+      message: "File shared successfully",
+      data: {
+        share: result.shareRecord,
+        shareLink: result.shareLink,
+      },
+    });
+  })
+);
+
 /**
  * GET /api/files/:id
  * Desc: Get details of a specific file.
- * NOTE: Place this AFTER /download and /all routes to avoid conflict.
+ * NOTE: MUST be AFTER /:id/detail
  */
 FileController.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
-    if (!Types.ObjectId.isValid(id)) throw new AppError("Invalid File ID", 400);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid File ID", 400);
+    }
 
     const file = await fileService.getFileDetail(id);
+    console.log("🔥🔥🔥 HIT GET FILE DETAIL", id);
+
     res.json(file);
   })
 );
