@@ -259,6 +259,66 @@ FileController.post(
   })
 );
 
+FileController.post(
+  "/:id/views",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params; // File ID
+    const { userId, ...bodyData } = req.body;
+
+    const result = await fileService.createView({
+      ...bodyData,
+      fileId: id,
+      userId: userId
+    });
+
+    res.status(201).json({ success: true, data: result });
+  })
+);
+
+/**
+ * GET /api/files/:id/views
+ * Desc: Get all views of a specific file
+ */
+FileController.get(
+  "/:id/views",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const views = await fileService.getViews(id);
+    res.json({ success: true, data: views });
+  })
+);
+
+/**
+ * GET /api/files/views/:viewId
+ * Desc: Get detail of a specific view
+ * Note: Route này hơi khác pattern /:id/views, cẩn thận kẻo trùng với /:id của file
+ * Cách tốt nhất: dùng prefix rõ ràng
+ */
+FileController.get(
+  "/views/:viewId",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { viewId } = req.params;
+    const view = await fileService.getViewDetail(viewId);
+    res.json({ success: true, data: view });
+  })
+);
+
+/**
+ * DELETE /api/files/views/:viewId
+ * Body: { userId }
+ * Desc: Delete a view
+ */
+FileController.delete(
+  "/views/:viewId",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { viewId } = req.params;
+    const { userId } = req.body;
+    
+    await fileService.deleteView(viewId, userId);
+    res.json({ success: true, message: "View deleted" });
+  })
+);
+
 /**
  * GET /api/files/:id
  * Desc: Get details of a specific file.
@@ -275,5 +335,7 @@ FileController.get(
     res.json(file);
   })
 );
+
+
 
 export { FileController };

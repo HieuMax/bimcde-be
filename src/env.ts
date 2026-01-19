@@ -5,7 +5,7 @@ import ms from "ms";
 dotenv.config();
 
 export const env = {
-  PORT: process.env.PORT || 4000,
+  PORT: process.env.PORT || 3000,
   APP_URL: process?.env.APP_URL,
   APP_TITLE: process?.env.APP_TITLE,
   SWAGGER_VERSION: process?.env.SWAGGER_VERSION,

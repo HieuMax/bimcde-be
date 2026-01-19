@@ -1,5 +1,6 @@
 import FileModel from "../schemas/file.schema";
 import { IFile } from "../interfaces/file.interface";
+import ViewModel from "../schemas/view.schema";
 import { Types } from "mongoose";
 import { env } from "../../../env";
 import FolderModel from "../../folder/schemas/folder.schema";
@@ -613,5 +614,82 @@ export default class FileService {
       console.error("DEBUG: Error in assignTags:", error);
       throw error;
     }
+  }
+  async createView(data: {
+    name: string;
+    description?: string;
+    projectId: string;
+    fileId: string;
+    userId: string;
+    annotations: string;
+    viewportState: any;
+    previewSrc?: string;
+    sharedWith?: string;
+  }) {
+    // Validate File tồn tại
+    const file = await FileModel.findOne({ _id: data.fileId, isDeleted: false });
+    if (!file) throw new AppError("File not found", 404);
+
+    // Parse viewport
+    let parsedViewport = { zoom: 1, rotate: 0, pageIndex: 1 };
+    if (data.viewportState) {
+      parsedViewport = typeof data.viewportState === 'string' 
+        ? JSON.parse(data.viewportState) 
+        : data.viewportState;
+    }
+
+    const newView = new ViewModel({
+      name: data.name,
+      description: data.description,
+      projectId: new Types.ObjectId(data.projectId),
+      fileId: new Types.ObjectId(data.fileId),
+      createdBy: new Types.ObjectId(data.userId),
+      assignedTo: data.sharedWith || "Private",
+      annotations: data.annotations,
+      viewportState: parsedViewport,
+      previewSrc: data.previewSrc,
+    });
+
+    const savedView = await newView.save();
+    return await savedView.populate("createdBy", "fullName avatar email");
+  }
+
+  /**
+   * Lấy danh sách View của 1 File
+   */
+  async getViews(fileId: string) {
+    return await ViewModel.find({
+      fileId: new Types.ObjectId(fileId),
+      isDeleted: false,
+    })
+    .sort({ createdAt: -1 })
+    .populate("createdBy", "fullName avatar email");
+  }
+
+  /**
+   * Lấy chi tiết 1 View
+   */
+  async getViewDetail(viewId: string) {
+    const view = await ViewModel.findOne({ _id: viewId, isDeleted: false })
+      .populate("createdBy", "fullName avatar email");
+    
+    if (!view) throw new AppError("View not found", 404);
+    return view;
+  }
+
+  /**
+   * Xóa View
+   */
+  async deleteView(viewId: string, userId: string) {
+    const view = await ViewModel.findOne({ _id: viewId, isDeleted: false });
+    if (!view) throw new AppError("View not found", 404);
+
+    if (view.createdBy.toString() !== userId) {
+      throw new AppError("You do not have permission to delete this view", 403);
+    }
+
+    view.isDeleted = true;
+    view.deletedAt = new Date();
+    return await view.save();
   }
 }
