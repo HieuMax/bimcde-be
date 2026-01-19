@@ -15,6 +15,47 @@ export default class FileService {
   async getAllFiles() {
     return await FileModel.find();
   }
+  async getFileById(fileId: string) {
+    const file = await FileModel.findOne({
+      _id: fileId,
+      isDeleted: false,
+    })
+      .populate("versions.uploadedBy", "fullName email")
+      .populate("lockedBy", "fullName email")
+      .populate("tags")
+      .lean();
+
+    if (!file) return null;
+
+    const latestVer = file.versions[file.versions.length - 1];
+    const uploader = latestVer?.uploadedBy as any;
+
+    return {
+      _id: file._id,
+      name: file.name,
+      folderId: file.folderId,
+      currentVersion: file.currentVersion,
+      updatedAt: file.updatedAt,
+      isLocked: file.isLocked,
+      lockedBy: file.lockedBy,
+      size: latestVer?.size || 0,
+      mimeType: latestVer?.mimeType,
+      location: latestVer?.location,
+      thumbnail: latestVer?.location,
+      modifiedBy: uploader?.fullName || "Unknown",
+      tags: file.tags,
+      versions: file.versions.map((v) => ({
+        version: v.version,
+        fileName: v.fileName,
+        size: v.size,
+        location: v.location,
+        mimeType: v.mimeType,
+        uploadedBy: (v.uploadedBy as any)?.fullName || "Unknown",
+        createdAt: v.createdAt,
+      })),
+    };
+  }
+
 
   // RENAME FILE
   async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
