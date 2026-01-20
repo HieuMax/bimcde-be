@@ -8,14 +8,14 @@ const viewService = new ViewService();
 const ViewController = express.Router();
 
 ViewController.post(
-  "/views/:fileId",
+  "/:fileId",
   asyncHandler(async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const { userId, ...payload } = req.body;
     const view = await viewService.create({
       ...payload,
       fileId,
-      createdBy: userId,
+      userId,
     });
 
     res.status(201).json({ success: true, data: view });
@@ -23,7 +23,7 @@ ViewController.post(
 );
 
 ViewController.get(
-  "/views/:fileId/file",
+  "/:fileId/file",
   asyncHandler(async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const views = await viewService.getByFile(fileId);
@@ -32,7 +32,7 @@ ViewController.get(
 );
 
 ViewController.get(
-  "/views/:viewId/detail",
+  "/:viewId/detail",
   asyncHandler(async (req: Request, res: Response) => {
     const { viewId } = req.params;
     const view = await viewService.getById(viewId);
@@ -41,7 +41,7 @@ ViewController.get(
 );
 
 ViewController.delete(
-  "/views/:viewId",
+  "/:viewId",
   asyncHandler(async (req: Request, res: Response) => {
     const { viewId } = req.params;
     const { userId } = req.body;
