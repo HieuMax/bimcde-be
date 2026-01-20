@@ -3,6 +3,7 @@ import ViewService from "../services/view.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 
+
 const viewService = new ViewService();
 const ViewController = express.Router();
 
@@ -49,4 +50,4 @@ ViewController.delete(
   })
 );
 
-
+export { ViewController };
