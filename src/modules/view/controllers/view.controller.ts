@@ -8,7 +8,7 @@ const viewService = new ViewService();
 const ViewController = express.Router();
 
 ViewController.post(
-  "/:fileId/views",
+  "/views/:fileId",
   asyncHandler(async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const { userId, ...payload } = req.body;
@@ -23,7 +23,7 @@ ViewController.post(
 );
 
 ViewController.get(
-  "/:fileId/views",
+  "/views/:fileId/file",
   asyncHandler(async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const views = await viewService.getByFile(fileId);
@@ -32,7 +32,7 @@ ViewController.get(
 );
 
 ViewController.get(
-  "/views/:viewId",
+  "/views/:viewId/detail",
   asyncHandler(async (req: Request, res: Response) => {
     const { viewId } = req.params;
     const view = await viewService.getById(viewId);
