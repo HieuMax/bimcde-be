@@ -1,6 +1,7 @@
 import express from "express";
 import { FolderController } from "../modules/folder/controllers/folder.controller";
 import { FileController } from "../modules/file/controllers/file.controller";
+import { ViewController } from "../modules/view/controllers/view.controller";
 import { ExplorerController } from "../modules/explorer/controllers/explorer.controller";
 import { CleanupController } from "../modules/system/controllers/cleanup.controller";
 import { CommentController } from "../modules/comment/controllers/comment.controller";
@@ -16,6 +17,7 @@ const apiRouter = express.Router();
 apiRouter.use("/accounts", AccountController);
 apiRouter.use("/folders", FolderController);
 apiRouter.use("/files", FileController);
+apiRouter.use("/views", ViewController)
 apiRouter.use("/explorer", ExplorerController);
 apiRouter.use("/cleanup", CleanupController);
 apiRouter.use("/comments", CommentController);
