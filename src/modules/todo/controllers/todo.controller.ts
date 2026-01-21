@@ -71,6 +71,7 @@ TodoController.post(
       tags,
       dueDate,
       projectId,
+      items,
     } = req.body;
 
     if (!title || !projectId) {
@@ -94,6 +95,7 @@ TodoController.post(
       dueDate: dueDate ? new Date(dueDate) : undefined,
       projectId,
       createdBy,
+      items,
     });
 
     res.status(201).json(newTodo);
@@ -120,6 +122,7 @@ TodoController.put(
       type,
       tags,
       dueDate,
+      items,
     } = req.body;
 
     if (!id) {
@@ -147,6 +150,7 @@ TodoController.put(
     if (dueDate !== undefined) {
       updateData.dueDate = dueDate ? new Date(dueDate) : null;
     }
+    if (items !== undefined) updateData.items = items;
 
     if (Object.keys(updateData).length === 0) {
       throw new AppError("Nothing to update", 400);

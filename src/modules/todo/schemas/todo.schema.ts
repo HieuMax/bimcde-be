@@ -43,6 +43,11 @@ const TodoSchema = new Schema<ITodo>(
     },
     tags: [{ type: String }],
     dueDate: { type: Date },
+    items: [{
+      fileUrl: { type: String },
+      modelId: { type: String },
+      expressId: [{ type: String }]
+    }],
     projectId: {
       type: Schema.Types.ObjectId,
       ref: "Project",

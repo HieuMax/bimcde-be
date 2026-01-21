@@ -56,6 +56,11 @@ export default class TodoService {
     dueDate?: Date;
     projectId: string;
     createdBy: string;
+    items?: {
+      fileUrl: string;
+      modelId: string;
+      expressId: string[];
+    }[];
   }): Promise<ITodo> {
     if (!data.title || !data.projectId || !data.createdBy) {
       throw new AppError("Title, projectId, and createdBy are required", 400);
