@@ -44,7 +44,10 @@ const FileSchema: Schema = new Schema(
     lockedBy: { type: Schema.Types.ObjectId, ref: "Account" },
     lockedAt: { type: Date },
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    collection: "files"
+  },
 );
 
 FileSchema.index(
@@ -56,3 +59,4 @@ FileSchema.index({ folderId: 1, updatedAt: 1 });
 FileSchema.index({ projectId: 1, isDeleted: 1 });
 
 export default mongoose.model<IFile>("File", FileSchema);
+// bimcde-be\src\modules\file\schemas\file.schema.ts
