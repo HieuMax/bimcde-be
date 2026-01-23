@@ -22,11 +22,13 @@ export default class CommentService {
   async createComment(data: {
     content: string;
     targetId: string;
-    targetType: string;
+    targetType: "file" | "folder" | "release" | "view";
     userId: string;
   }) {
     const newComment = new CommentModel({
-      ...data,
+      content: data.content,
+      targetId: new Types.ObjectId(data.targetId),
+      targetType: data.targetType,
       createdBy: new Types.ObjectId(data.userId),
     });
     const savedComment = await newComment.save();
