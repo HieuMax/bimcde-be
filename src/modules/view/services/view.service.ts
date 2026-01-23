@@ -1,0 +1,172 @@
+import ViewModel from "../schemas/view.schema";
+import { CreateViewDTO, IView } from "../interfaces/view.interface";
+import { Types } from "mongoose";
+import { AppError } from "../../../utils/AppError";
+
+export default class ViewService {
+  /**
+   * Tạo View mới
+   */
+  async createView(data: CreateViewDTO, userId: string): Promise<IView> {
+    // Validate logic nghiệp vụ
+    if (data.type === "2D" && !data.relatedFileId) {
+      throw new AppError("2D View must be associated with a file", 400);
+    }
+
+    const newView = new ViewModel({
+      projectId: new Types.ObjectId(data.projectId),
+      name: data.name,
+      description: data.description,
+      thumbnailUrl: data.thumbnailUrl,
+      type: data.type,
+      relatedFileId: data.relatedFileId
+        ? new Types.ObjectId(data.relatedFileId)
+        : undefined,
+      createdBy: new Types.ObjectId(userId),
+      sharedWith: {
+        isPublic: data.sharedWith?.isPublic || false,
+        users: data.sharedWith?.users?.map((u) => new Types.ObjectId(u)) || [],
+      },
+      viewState: data.viewState,
+    });
+
+    // [FIX] TS2322: Ép kiểu kết quả trả về để khớp với Interface IView
+    return (await newView.save()) as unknown as IView;
+  }
+
+  /**
+   * Lấy danh sách Views theo Project + Phân quyền
+   */
+  async getViews(
+    projectId: string,
+    currentUser: any,
+    filters: { type?: string; createdBy?: string },
+  ) {
+    const projectObjId = new Types.ObjectId(projectId);
+    const userObjId = new Types.ObjectId(currentUser._id);
+    const currentUserId = currentUser._id.toString();
+
+    const matchStage: any = {
+      projectId: projectObjId,
+    };
+
+    if (filters.type) {
+      matchStage.type = filters.type;
+    }
+
+    console.log(currentUser.role);
+
+    if (currentUser.role === "admin") {
+      // Admin: Load all
+      // We ignore filters.createdBy to ensure Admin sees everything,
+      // assuming the frontend might be sending the current user's ID by default.
+    } else {
+      // User: Load related (Created by me OR Public OR Shared with me)
+      if (filters.createdBy) {
+        matchStage.createdBy = new Types.ObjectId(filters.createdBy);
+
+        if (filters.createdBy !== currentUserId) {
+          matchStage.$or = [
+            { "sharedWith.isPublic": true },
+            { "sharedWith.users": userObjId },
+          ];
+        }
+      } else {
+        matchStage.$or = [
+          { createdBy: userObjId },
+          { "sharedWith.isPublic": true },
+          { "sharedWith.users": userObjId },
+        ];
+      }
+    }
+
+    // [LƯU Ý] Vì dùng .lean(), kết quả trả về là Plain JS Object, không phải Mongoose Document
+    return await ViewModel.find(matchStage)
+      .populate("createdBy", "fullName email")
+      .populate("relatedFileId", "name")
+      .sort({ updatedAt: -1 })
+      .lean();
+  }
+
+  /**
+   * Lấy chi tiết 1 View
+   */
+  async getViewById(viewId: string, currentUserId: string) {
+    const view = await ViewModel.findById(viewId).populate(
+      "createdBy",
+      "fullName",
+    );
+    if (!view) throw new AppError("View not found", 404);
+
+    const isOwner = view.createdBy._id.toString() === currentUserId;
+
+    // [FIX] TS18049: Dùng Optional Chaining (?.) để an toàn khi truy cập sharedWith
+    const isPublic = view.sharedWith?.isPublic || false;
+    const isShared =
+      view.sharedWith?.users?.some((id) => id.toString() === currentUserId) ||
+      false;
+
+    if (!isOwner && !isPublic && !isShared) {
+      throw new AppError("You do not have permission to view this", 403);
+    }
+
+    return view;
+  }
+
+  /**
+   * Update View
+   */
+  async updateView(
+    viewId: string,
+    updateData: Partial<CreateViewDTO>,
+    currentUserId: string,
+  ) {
+    const view = await ViewModel.findById(viewId);
+    if (!view) throw new AppError("View not found", 404);
+
+    if (view.createdBy.toString() !== currentUserId) {
+      throw new AppError("Only the owner can modify this view", 403);
+    }
+
+    // Map dữ liệu update
+    if (updateData.name) view.name = updateData.name;
+    if (updateData.description) view.description = updateData.description;
+
+    // [FIX] TS2741: Việc fix Interface IViewState ở bước 1 sẽ giải quyết lỗi gán ở đây
+    // Nếu vẫn lỗi, hãy đảm bảo updateData.viewState có cấu trúc khớp với Schema
+    if (updateData.viewState) view.viewState = updateData.viewState as any;
+
+    if (updateData.thumbnailUrl) view.thumbnailUrl = updateData.thumbnailUrl;
+
+    // Update Sharing logic
+    if (updateData.sharedWith) {
+      // [FIX] TS18049: Đảm bảo view.sharedWith tồn tại trước khi gán
+      if (!view.sharedWith) {
+        view.sharedWith = { isPublic: false, users: [] };
+      }
+
+      if (updateData.sharedWith.isPublic !== undefined)
+        view.sharedWith.isPublic = updateData.sharedWith.isPublic;
+
+      if (updateData.sharedWith.users)
+        view.sharedWith.users = updateData.sharedWith.users.map(
+          (id) => new Types.ObjectId(id),
+        );
+    }
+
+    // [FIX] TS2322 (Tương tự createView)
+    return (await view.save()) as unknown as IView;
+  }
+
+  async deleteView(viewId: string, currentUserId: string) {
+    const view = await ViewModel.findById(viewId);
+    if (!view) throw new AppError("View not found", 404);
+
+    if (view.createdBy.toString() !== currentUserId) {
+      throw new AppError("Only the owner can delete this view", 403);
+    }
+
+    await ViewModel.deleteOne({ _id: view._id });
+    return view as unknown as IView;
+  }
+}

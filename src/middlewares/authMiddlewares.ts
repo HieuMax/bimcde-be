@@ -2,8 +2,13 @@ import { NextFunction, Request, Response } from "express";
 import { verifyAccessToken } from "../utils/authUntil";
 import { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
 import { Types } from "mongoose";
+import AccountModel from "../modules/account/schemas/account.schema"; //
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({
@@ -12,12 +17,31 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
     });
     return;
   }
+
   const [_, token] = authHeader.split(" ");
+
   try {
-    // Xác thực token ở đây (sử dụng verifyAccessToken từ authUtil)
+    // 1. Verify Token
     const jwtPayload = verifyAccessToken(token) as { userId: Types.ObjectId };
-    // Gắn thông tin người dùng vào request để sử dụng trong các middleware hoặc controller tiếp theo
-    req.userId = jwtPayload.userId;
+
+    // 2. Fetch User Info (Quan trọng: Lấy các trường cần thiết cho Audit Log)
+    // Dùng lean() để tối ưu tốc độ vì ta không cần save() lại user ở đây
+    const user = await AccountModel.findById(jwtPayload.userId)
+      .select("fullName email role avatar")
+      .lean();
+
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: "Người dùng không tồn tại hoặc đã bị xóa.",
+      });
+      return;
+    }
+
+    // 3. Gắn thông tin vào Request
+    req.userId = jwtPayload.userId; // Giữ lại để các Controller cũ vẫn chạy
+    req.user = user as any; // Gắn object user (có fullName, email) cho AuditLog dùng
+
     next();
   } catch (error) {
     if (error instanceof TokenExpiredError) {
@@ -29,12 +53,12 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
     if (error instanceof JsonWebTokenError) {
       return res.status(401).json({
         success: false,
-        message: "Refresh token không hợp lệ. Vui lòng đăng nhập lại.",
+        message: "Token không hợp lệ. Vui lòng đăng nhập lại.",
       });
     }
     res.status(401).json({
       code: "AuthenticationError",
-      message: "Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.",
+      message: "Token không hợp lệ hoặc đã hết hạn.",
     });
   }
 };

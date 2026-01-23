@@ -97,7 +97,7 @@ export default class ProjectService {
         const member = projectMembers.find(
           (member: any | undefined) =>
             member.projectId.toString() === project._id.toString() &&
-            member.userId.toString() === userId.toString()
+            member.userId.toString() === userId.toString(),
         );
 
         return {
@@ -133,7 +133,7 @@ export default class ProjectService {
 
       await projectMemberSchema.updateMany(
         { userId, projectId: { $in: projectId } },
-        { $set: { lastAccessed: new Date() } }
+        { $set: { lastAccessed: new Date() } },
       );
 
       const userCount = await projectMemberSchema.countDocuments({
@@ -153,7 +153,7 @@ export default class ProjectService {
   async updateProject(
     projectId: string,
     userId: Types.ObjectId | undefined,
-    updateData: any
+    updateData: any,
   ) {
     try {
       if (!userId) {
@@ -177,7 +177,7 @@ export default class ProjectService {
       const updatedProject = await projectSchema.findByIdAndUpdate(
         projectId,
         updateData,
-        { new: true }
+        { new: true },
       );
       if (!updatedProject) {
         throw new Error("Dự án không tồn tại.");
@@ -214,7 +214,7 @@ export default class ProjectService {
         // Nếu là admin duy nhất thì không cho rời dự án
         if (adminCount <= 1) {
           throw new Error(
-            "Bạn là admin duy nhất của dự án, không thể rời dự án. Hãy chuyển quyền admin cho người khác trước."
+            "Bạn là admin duy nhất của dự án, không thể rời dự án. Hãy chuyển quyền admin cho người khác trước.",
           );
         }
       }
@@ -250,7 +250,7 @@ export default class ProjectService {
 
       if (!member) {
         throw new Error(
-          "Bạn không có quyền xóa dự án này. Chỉ admin của dự án mới được phép xóa."
+          "Bạn không có quyền xóa dự án này. Chỉ admin của dự án mới được phép xóa.",
         );
       }
 
@@ -271,7 +271,7 @@ export default class ProjectService {
   async inviteToProject(
     userId: Types.ObjectId | undefined,
     projectId: string,
-    data: any
+    data: any,
   ) {
     try {
       if (!userId) {
@@ -296,7 +296,7 @@ export default class ProjectService {
 
       if (!member) {
         throw new Error(
-          "Bạn không có quyền mời người dùng vào dự án này. Chỉ admin của dự án mới được phép mời."
+          "Bạn không có quyền mời người dùng vào dự án này. Chỉ admin của dự án mới được phép mời.",
         );
       }
 
@@ -336,7 +336,7 @@ export default class ProjectService {
 
         if (memberInGroup) {
           throw new Error(
-            "Người dùng đã là thành viên của nhóm này trong dự án."
+            "Người dùng đã là thành viên của nhóm này trong dự án.",
           );
         }
 
@@ -354,11 +354,41 @@ export default class ProjectService {
       throw error;
     }
   }
+  // Lấy danh sách thành viên của dự án
+  async getProjectMembers(
+    projectId: string,
+    userId: Types.ObjectId | undefined,
+  ) {
+    try {
+      if (!userId) throw new Error("Unauthorized");
+
+      // Check xem user hiện tại có trong project không
+      const isMember = await projectMemberSchema.exists({ projectId, userId });
+      if (!isMember) throw new Error("Access denied");
+
+      // Lấy danh sách member và populate thông tin từ bảng Account
+      const members = await projectMemberSchema
+        .find({ projectId })
+        .populate("userId", "fullName email avatar") // Lấy các trường cần thiết
+        .lean();
+
+      // Map lại dữ liệu cho gọn
+      return members.map((m: any) => ({
+        userId: m.userId._id,
+        fullName: m.userId.fullName,
+        email: m.userId.email,
+        avatar: m.userId.avatar,
+        role: m.role,
+      }));
+    } catch (error) {
+      throw error;
+    }
+  }
 
   async updateProjectMember(
     userId: Types.ObjectId | undefined,
     projectId: string,
-    data: any
+    data: any,
   ) {
     try {
       if (!userId) {
@@ -379,7 +409,7 @@ export default class ProjectService {
       });
       if (!member) {
         throw new Error(
-          "Bạn không có quyền cập nhật thành viên dự án này. Chỉ admin của dự án mới được phép cập nhật."
+          "Bạn không có quyền cập nhật thành viên dự án này. Chỉ admin của dự án mới được phép cập nhật.",
         );
       }
       const updatedMember = await projectMemberSchema.findOneAndUpdate(
@@ -390,7 +420,7 @@ export default class ProjectService {
         {
           role: data.role,
         },
-        { new: true }
+        { new: true },
       );
       if (!updatedMember) {
         throw new Error("Thành viên không tồn tại trong dự án.");
@@ -404,7 +434,7 @@ export default class ProjectService {
   async removeFromProject(
     userId: Types.ObjectId | undefined,
     projectId: string,
-    data: string
+    data: string,
   ) {
     if (!userId) {
       throw new Error("User không hợp lệ.");
@@ -429,7 +459,7 @@ export default class ProjectService {
 
     if (!adminMember) {
       throw new Error(
-        "Bạn không có quyền xóa thành viên khỏi dự án. Chỉ admin của dự án mới có thể thực hiện."
+        "Bạn không có quyền xóa thành viên khỏi dự án. Chỉ admin của dự án mới có thể thực hiện.",
       );
     }
 
@@ -449,8 +479,8 @@ export default class ProjectService {
     }
 
     const removedGroupMembers = await groupMemberModel.deleteMany({
-      userId: data, 
-      groupId: { $in: groups.map((group) => group._id) }, 
+      userId: data,
+      groupId: { $in: groups.map((group) => group._id) },
     });
 
     if (removedGroupMembers.deletedCount === 0) {
