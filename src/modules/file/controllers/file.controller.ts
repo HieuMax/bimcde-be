@@ -7,9 +7,13 @@ import FileService from "../services/file.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import { Types } from "mongoose";
+import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import Middleware
+import { authenticate } from "../../../middlewares/authMiddlewares";
+import ActivityService from "../../activity/services/activity.service";
 
 const FileController = express.Router();
 const fileService = new FileService();
+const activityService = new ActivityService();
 
 // Multer configuration for R2
 const upload = multer({
@@ -46,12 +50,12 @@ FileController.post(
 
     const results = await Promise.all(
       files.map((file) =>
-        fileService.handleFileUpload(file, projectId, folderId, userId)
-      )
+        fileService.handleFileUpload(file, projectId, folderId, userId),
+      ),
     );
 
     res.status(201).json(results);
-  })
+  }),
 );
 
 /**
@@ -67,7 +71,7 @@ FileController.get(
 
     const files = await fileService.getFilesInFolder(folderId as string);
     res.json(files);
-  })
+  }),
 );
 
 FileController.get(
@@ -75,7 +79,7 @@ FileController.get(
   asyncHandler(async (req: Request, res: Response) => {
     const files = await fileService.getAllFiles();
     res.json(files);
-  })
+  }),
 );
 
 /**
@@ -91,7 +95,7 @@ FileController.put(
 
     const result = await fileService.moveFile(id, destinationFolderId, userId);
     res.json(result);
-  })
+  }),
 );
 
 /**
@@ -111,7 +115,7 @@ FileController.post(
     const result = await fileService.moveManyFiles(
       fileIds,
       destinationFolderId,
-      userId
+      userId,
     );
 
     res.json({
@@ -119,7 +123,7 @@ FileController.post(
       message: "Moved successfully",
       data: result,
     });
-  })
+  }),
 );
 
 /**
@@ -139,7 +143,7 @@ FileController.post(
 
     const result = await fileService.toggleLock(id, userId, action);
     res.json(result);
-  })
+  }),
 );
 
 /**
@@ -149,13 +153,23 @@ FileController.post(
  */
 FileController.delete(
   "/:id",
+  authenticate,
+  auditLog("FILE", "DELETE", (req, resBody) => ({
+    itemId: req.params.id,
+    itemName: resBody?.fileName || "File Deleted",
+    itemModel: "File",
+  })),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { userId } = req.body;
+    const userId = req.userId?.toString() || req.body.userId;
 
-    await fileService.deleteFile(id, userId);
-    res.json({ message: "File deleted successfully" });
-  })
+    const deletedFile = await fileService.deleteFile(id, userId);
+    res.json({
+      message: "File deleted successfully",
+      projectId: deletedFile.projectId,
+      fileName: deletedFile.name,
+    });
+  }),
 );
 
 /**
@@ -174,7 +188,7 @@ FileController.post(
 
     const result = await fileService.toggleLockMany(folderId, userId, action);
     res.json(result);
-  })
+  }),
 );
 
 /**
@@ -185,18 +199,19 @@ FileController.post(
 FileController.get(
   "/download",
   asyncHandler(async (req: Request, res: Response) => {
-    const { id, type } = req.query;
-
+    const { id, type, version } = req.query;
     if (!id || !type) throw new AppError("Missing id or type", 400);
 
     if (type === "file") {
-      await fileService.downloadFile(id as string, res);
+      // Chuyển version sang number nếu có
+      const versionNum = version ? parseInt(version as string) : undefined;
+      await fileService.downloadFile(id as string, res, versionNum);
     } else if (type === "folder") {
       await fileService.downloadFolder(id as string, res);
     } else {
       throw new AppError("Invalid type", 400);
     }
-  })
+  }),
 );
 
 /**
@@ -206,15 +221,44 @@ FileController.get(
  */
 FileController.put(
   "/:id/rename",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { name, userId } = req.body;
 
     if (!name) throw new AppError("New name is required", 400);
 
+    // 1. Lấy file cũ để biết tên cũ
+    const oldFile = await fileService.getFileDetail(id);
+    const oldName = oldFile.name;
+
+    // 2. Thực hiện Rename
     const updatedFile = await fileService.renameFile(id, name, userId);
+
+    // 3. Ghi Log thủ công có MetaData
+    await activityService.logActivity({
+      projectId: updatedFile.projectId,
+      actor: {
+        userId: req.user!._id,
+        fullName: req.user!.fullName,
+        email: req.user!.email,
+      },
+      actionGroup: "FILE",
+      actionType: "RENAME",
+      target: {
+        itemId: updatedFile._id,
+        itemModel: "File",
+        itemName: updatedFile.name, // Tên mới
+      },
+      description: `Renamed file from "${oldName}" to "${updatedFile.name}"`,
+      metaData: {
+        oldName: oldName,
+        newName: updatedFile.name,
+      },
+    });
+
     res.json(updatedFile);
-  })
+  }),
 );
 
 /**
@@ -232,7 +276,7 @@ FileController.post(
     }
 
     await fileService.downloadBulk(items, projectId, res);
-  })
+  }),
 );
 
 /**
@@ -256,7 +300,27 @@ FileController.post(
 
     const result = await fileService.assignTags(fileIds, tagIds || []);
     res.json(result);
-  })
+  }),
+);
+
+FileController.post(
+  "/:id/restore",
+  authenticate,
+  auditLog("FILE", "RESTORE", (req, resBody) => ({
+    itemId: req.params.id,
+    itemName: resBody?.fileName || "File Restored",
+    itemModel: "File",
+  })),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const userId = req.userId?.toString() || req.body.userId;
+    const restoredFile = await fileService.restoreFile(id, userId);
+    res.json({
+      message: "File restored successfully",
+      projectId: restoredFile.projectId,
+      fileName: restoredFile.name,
+    });
+  }),
 );
 
 /**
@@ -273,7 +337,7 @@ FileController.get(
 
     const file = await fileService.getFileDetail(id);
     res.json(file);
-  })
+  }),
 );
 
 export { FileController };
