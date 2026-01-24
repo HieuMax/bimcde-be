@@ -10,6 +10,11 @@ import { startCleanupJob } from "./modules/system/services/cleanup.service";
 const app = express();
 
 const bootstrap = async () => {
+  app.use((req, res, next) => {
+    console.log(`[Incoming Request]: ${req.url}`);
+    next();
+  });
+
   app.use(bodyParser.json({ limit: "10mb" }));
   app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
   app.use(cookieParser());

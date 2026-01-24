@@ -61,6 +61,7 @@ export default class TodoService {
       modelId: string;
       expressId: string[];
     }[];
+    viewState?: any
   }): Promise<ITodo> {
     if (!data.title || !data.projectId || !data.createdBy) {
       throw new AppError("Title, projectId, and createdBy are required", 400);
@@ -74,6 +75,7 @@ export default class TodoService {
       priority: data.priority || "normal",
       completion: data.completion ?? 0,
       type: data.type || "undefined",
+      viewState: data.viewState,
     });
 
     return await this.getTodoById(newTodo._id.toString());

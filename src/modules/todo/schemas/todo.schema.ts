@@ -48,6 +48,26 @@ const TodoSchema = new Schema<ITodo>(
       modelId: { type: String },
       expressId: [{ type: String }]
     }],
+    // viewState: {
+    //   camera: {
+    //     position: [{ type: Number }],
+    //     target: [{ type: Number }]   
+    //   },
+    //   visibility: [{
+    //     modelID: { type: Schema.Types.Mixed },
+    //     ids: [{ type: Number }]
+    //   }],
+    //   selection: [{
+    //     modelID: { type: Schema.Types.Mixed },
+    //     expressID: { type: Number },
+    //     fileUrl: { type: String }
+    //   }],
+    //   thumbnail: { type: String }
+    // },
+    viewState: {
+      type: Schema.Types.Mixed,
+      default: null
+    },
     projectId: {
       type: Schema.Types.ObjectId,
       ref: "Project",
@@ -61,6 +81,13 @@ const TodoSchema = new Schema<ITodo>(
   },
   { timestamps: true }
 );
+
+TodoSchema.pre('save', function (next) {
+  if (this.isModified('viewState')) {
+    this.markModified('viewState');
+  }
+  next();
+});
 
 TodoSchema.index({ projectId: 1, status: 1, createdAt: -1 });
 TodoSchema.index({ createdBy: 1 });

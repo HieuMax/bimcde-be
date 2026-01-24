@@ -26,6 +26,22 @@ export interface ITodo extends Document {
     modelId: string;
     expressId: string[];
   }[];
+  viewState?: {
+    camera: {
+      position: number[];
+      target: number[];
+    };
+    visibility: {
+      modelID: string | number;
+      ids: number[];
+    }[];
+    selection: {
+      modelID: string | number;
+      expressID: number;
+      fileUrl?: string;
+    }[];
+    thumbnail?: string; // Base64 string
+  };
   createdAt: Date;
   updatedAt: Date;
 }
