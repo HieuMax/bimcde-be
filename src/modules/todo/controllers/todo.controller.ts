@@ -73,6 +73,7 @@ TodoController.post(
       projectId,
       items,
       viewState,
+      attachments
     } = req.body;
 
     if (!title || !projectId) {
@@ -98,6 +99,7 @@ TodoController.post(
       createdBy,
       items,
       viewState,
+      attachments
     });
 
     res.status(201).json(newTodo);
@@ -126,6 +128,7 @@ TodoController.put(
       dueDate,
       items,
       viewState,
+      attachments
     } = req.body;
 
     if (!id) {
@@ -155,6 +158,7 @@ TodoController.put(
     }
     if (items !== undefined) updateData.items = items;
     if (viewState !== undefined) updateData.viewState = viewState;
+    if (attachments !== undefined) updateData.attachments = attachments;
 
     if (Object.keys(updateData).length === 0) {
       throw new AppError("Nothing to update", 400);

@@ -1,5 +1,13 @@
 import mongoose, { Document } from "mongoose";
 
+export interface IAttachment {
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  fileId?: string; // (Optional)
+}
+
 export interface ITodo extends Document {
   title: string;
   description?: string;
@@ -42,6 +50,7 @@ export interface ITodo extends Document {
     }[];
     thumbnail?: string; // Base64 string
   };
+  attachments?: IAttachment[];
   createdAt: Date;
   updatedAt: Date;
 }
