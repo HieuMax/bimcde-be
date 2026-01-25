@@ -37,5 +37,5 @@ const ViewSchema = new Schema<IView>(
     { timestamps: true }
 );
 
-const ViewModel = mongoose.model<IView>("View", ViewSchema);
+const ViewModel = mongoose.model<IView>("View3D", ViewSchema);
 export default ViewModel;

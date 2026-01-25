@@ -4,13 +4,13 @@ import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 
-const ViewController = express.Router();
+const ViewController3d = express.Router();
 const viewService = new ViewService();
 
 /**
- * GET /api/views?projectId=...
+ * GET /api/views3d?projectId=...
  */
-ViewController.get(
+ViewController3d.get(
     "/",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
@@ -24,7 +24,7 @@ ViewController.get(
 /**
  * POST /api/views
  */
-ViewController.post(
+ViewController3d.post(
     "/",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
@@ -38,7 +38,7 @@ ViewController.post(
 /**
  * PATCH /api/views/:id (Update Info Text)
  */
-ViewController.patch(
+ViewController3d.patch(
     "/:id",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
@@ -52,7 +52,7 @@ ViewController.patch(
 /**
  * PUT /api/views/:id/snapshot (Update 3D State)
  */
-ViewController.put(
+ViewController3d.put(
     "/:id/snapshot",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
@@ -67,7 +67,7 @@ ViewController.put(
 /**
  * DELETE /api/views/:id
  */
-ViewController.delete(
+ViewController3d.delete(
     "/:id",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
@@ -78,4 +78,4 @@ ViewController.delete(
     })
 );
 
-export default ViewController;
+export default ViewController3d;

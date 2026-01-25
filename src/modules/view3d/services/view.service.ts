@@ -24,7 +24,6 @@ export default class ViewService {
         const view = await ViewModel.findById(id);
         if (!view) throw new AppError("View not found", 404);
 
-        // Chỉ cho phép update các trường text
         const { title, description, shareWith, tags } = data;
 
         const updatedView = await ViewModel.findByIdAndUpdate(
