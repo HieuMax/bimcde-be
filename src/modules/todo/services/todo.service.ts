@@ -1,5 +1,5 @@
 import TodoModel from "../schemas/todo.schema";
-import { ITodo } from "../interfaces/todo.interface";
+import { IAttachment, ITodo } from "../interfaces/todo.interface";
 import { AppError } from "../../../utils/AppError";
 import { Types } from "mongoose";
 
@@ -61,7 +61,8 @@ export default class TodoService {
       modelId: string;
       expressId: string[];
     }[];
-    viewState?: any
+    viewState?: any;
+    attachments?: IAttachment[];
   }): Promise<ITodo> {
     if (!data.title || !data.projectId || !data.createdBy) {
       throw new AppError("Title, projectId, and createdBy are required", 400);
@@ -76,6 +77,7 @@ export default class TodoService {
       completion: data.completion ?? 0,
       type: data.type || "undefined",
       viewState: data.viewState,
+      attachments: data.attachments,
     });
 
     return await this.getTodoById(newTodo._id.toString());

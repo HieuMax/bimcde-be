@@ -1,6 +1,14 @@
 import mongoose, { Schema } from "mongoose";
 import { ITodo } from "../interfaces/todo.interface";
 
+const AttachmentSchema = new Schema({
+  name: { type: String, required: true },
+  url: { type: String, required: true },
+  mimeType: { type: String },
+  size: { type: Number },
+  fileId: { type: String } // Optional
+}, { _id: false });
+
 const TodoSchema = new Schema<ITodo>(
   {
     title: { type: String, required: [true, "Title is required"] },
@@ -68,6 +76,7 @@ const TodoSchema = new Schema<ITodo>(
       type: Schema.Types.Mixed,
       default: null
     },
+    attachments: [AttachmentSchema],
     projectId: {
       type: Schema.Types.ObjectId,
       ref: "Project",
