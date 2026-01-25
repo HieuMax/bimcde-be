@@ -5,27 +5,25 @@ export interface IView extends Document {
     description?: string;
     projectId: mongoose.Types.ObjectId;
     createdBy: mongoose.Types.ObjectId;
-    shareWith?: string[]; // Option A: Mảng các email/tên
+    shareWith?: string[];
     tags?: string[];
 
-    // Context Model (Để biết view này thuộc file nào)
+    // Context Model
     items?: {
         fileUrl: string;
         modelId: string;
         expressId: string[];
     }[];
 
-    // Trạng thái 3D
+    // 3D State
     viewState?: {
         camera: {
             position: number[];
             target: number[];
         };
         visibility: {
-            // modelID: string | number;
-            // ids: number[];
-            fileUrl: string; // Lưu URL thay vì modelID để không bị mất dấu
-            ids: number[];   // Danh sách ID bị ẩn
+            fileUrl: string;
+            ids: number[];   // list hidden IDs
         }[];
         selection: {
             modelID: string | number;

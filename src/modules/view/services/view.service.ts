@@ -37,7 +37,6 @@ export default class ViewService {
     }
 
     // --- UPDATE SNAPSHOT (3D State only) ---
-    // API này dùng khi user bấm "Update View" từ menu 3 chấm
     async updateSnapshot(id: string, snapshotData: { viewState: any, items: any[] }, userId: string): Promise<IView> {
         const view = await ViewModel.findById(id);
         if (!view) throw new AppError("View not found", 404);
