@@ -9,9 +9,13 @@ import { AccountController } from "../modules/account/controllers/account.contro
 import { ProjectController } from "../modules/project/controllers/project.controller";
 import { PermissionsController } from "../modules/permission/controllers/permissions.controller";
 import { UnitController } from "../modules/unit/controllers/unit.controller";
+import { ViewController } from "../modules/view/controllers/view.controller";
+import { ActivityController } from "../modules/activity/controllers/activity.controller";
+import { ReleaseController } from "../modules/release/controllers/release.controller";
 import TopicsController from "../modules/topic/controllers/topics.controller";
 import { TodoController } from "../modules/todo/controllers/todo.controller";
 import ViewController3d from "../modules/view3d/controllers/view.controller";
+import { TeamController } from "../modules/team/controllers/team.controllers";
 
 const apiRouter = express.Router();
 
@@ -28,5 +32,9 @@ apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
 apiRouter.use("/todos", TodoController);
 apiRouter.use("/views3d", ViewController3d);
+apiRouter.use("/team", TeamController);
+apiRouter.use("/views", ViewController);
+apiRouter.use("/activities", ActivityController);
+apiRouter.use("/releases", ReleaseController);
 
 export { apiRouter };
