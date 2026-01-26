@@ -10,7 +10,7 @@ import { ProjectController } from "../modules/project/controllers/project.contro
 import { PermissionsController } from "../modules/permission/controllers/permissions.controller";
 import { UnitController } from "../modules/unit/controllers/unit.controller";
 import TopicsController from "../modules/topic/controllers/topics.controller";
-import { TodoController } from "../modules/todo/controllers/todo.controller";
+import { TodoController as Todo3dController } from "../modules/todo3d/controllers/todo.controller";
 import ViewController3d from "../modules/view3d/controllers/view.controller";
 
 const apiRouter = express.Router();
@@ -26,7 +26,7 @@ apiRouter.use("/projects", ProjectController);
 apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
-apiRouter.use("/todos", TodoController);
+apiRouter.use("/todos3d", Todo3dController);
 apiRouter.use("/views3d", ViewController3d);
 
 export { apiRouter };

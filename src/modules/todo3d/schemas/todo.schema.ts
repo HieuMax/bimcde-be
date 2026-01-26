@@ -102,5 +102,5 @@ TodoSchema.index({ projectId: 1, status: 1, createdAt: -1 });
 TodoSchema.index({ createdBy: 1 });
 TodoSchema.index({ assignees: 1 });
 
-const TodoModel = mongoose.model<ITodo>("Todo", TodoSchema);
+const TodoModel = mongoose.model<ITodo>("Todo3d", TodoSchema);
 export default TodoModel;
