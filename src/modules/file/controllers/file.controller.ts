@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import multer from "multer";
 import multerS3 from "multer-s3";
-import { s3Client } from "../../../lib/r2.lib"; // Import client ở bước 1
+import { s3Client } from "../../../lib/r2.lib";
 import { env } from "../../../env";
 import FileService from "../services/file.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
@@ -11,6 +11,7 @@ import { Types } from "mongoose";
 
 import { authenticate } from "../../../middlewares/authMiddlewares";
 
+const PublicFileController = express.Router();
 const FileController = express.Router();
 const fileService = new FileService();
 
@@ -30,18 +31,6 @@ const upload = multer({
   }),
 });
 
-FileController.get(
-  "/public/:id",
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { shareToken } = req.query; // Lấy token từ query string
-
-    if (!shareToken) throw new AppError("Missing Token", 401);
-
-    const result = await fileService.getFileDetailPublic(id as string, shareToken as string);
-    res.json(result);
-  })
-);
 /**
  * POST /api/files/upload
  * Query Files: files (array of files)
@@ -69,6 +58,34 @@ FileController.post(
   })
 );
 
+// === US 94 === 
+PublicFileController.get(
+  "/public/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    console.log("👉 [Controller] Hit /public/:id", id); 
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+
+    const result = await fileService.getFileDetailPublic(id as string, shareToken as string);
+    res.json(result);
+  })
+);
+
+PublicFileController.get(
+  "/public/:id/download",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+
+    await fileService.downloadPublicFile(id as string, shareToken as string, res);
+  })
+);
+// =====
 /**
  * GET /api/files?folderId=...
  * Query: { folderId }s)
@@ -82,6 +99,21 @@ FileController.get(
 
     const files = await fileService.getFilesInFolder(folderId as string);
     res.json(files);
+  })
+);
+
+FileController.get(
+  "/public/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+    console.log("👉 [Controller] Hit /public/:id", id); // Debug Log
+    // Gọi hàm vừa sửa ở bước 1
+    const result = await fileService.getFileDetailPublic(id as string, shareToken as string);
+    
+    res.json(result);
   })
 );
 
@@ -279,22 +311,50 @@ FileController.post(
  * Desc: Get details of a specific file.
  * NOTE: MUST be AFTER /:id/detail
  */
+// FileController.get(
+//   "/:id",
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { id } = req.params;
+
+//     if (!Types.ObjectId.isValid(id)) {
+//       throw new AppError("Invalid File ID", 400);
+//     }
+
+//     const file = await fileService.getFileDetail(id);
+//     console.log("🔥🔥🔥 HIT GET FILE DETAIL", id);
+
+//     res.json(file);
+//   })
+// );
 FileController.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    const { shareToken } = req.query;
 
     if (!Types.ObjectId.isValid(id)) {
       throw new AppError("Invalid File ID", 400);
     }
 
-    const file = await fileService.getFileDetail(id);
-    console.log("🔥🔥🔥 HIT GET FILE DETAIL", id);
+    // 🔥🔥🔥 FIX QUYẾT ĐỊNH
+    if (shareToken && typeof shareToken === "string") {
+      console.log("🔓 PUBLIC FILE ACCESS", { id, shareToken });
 
+      const result = await fileService.getFileDetailPublic(
+        id,
+        shareToken
+      );
+
+      return res.json(result);
+    }
+
+    // 🔒 NORMAL MODE
+    const file = await fileService.getFileDetail(id);
     res.json(file);
   })
 );
 
-export { FileController };
+
+export { FileController, PublicFileController };
 
 // bimcde-be\src\modules\file\controllers\file.controller.ts

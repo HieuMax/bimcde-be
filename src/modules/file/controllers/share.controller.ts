@@ -1,47 +1,38 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import ShareModel from "../schemas/share.schema";
-import FileModel from "../schemas/file.schema";
 import { AppError } from "../../../utils/AppError";
 import FileService from "../services/file.service";
+
 const fileService = new FileService();
+
 export class ShareController {
-  async resolveShare(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { token } = req.params;
 
-      const share = await ShareModel.findOne({ token }).lean();
-      if (!share) {
-        throw new AppError("Share link invalid", 404);
-      }
+  /**
+   * GET /api/share/:token
+   * Dùng để resolve token → trả fileId + projectId
+   */
+  async resolveShare(req: Request, res: Response) {
+    const { token } = req.params;
 
-      if (share.expiresAt && new Date() > share.expiresAt) {
-        throw new AppError("Share link expired", 410);
-      }
+    // 1️⃣ Check token
+    const share = await ShareModel.findOne({ token }).lean();
 
-      return res.json({
-        fileId: share.fileId.toString(),
-        projectId: share.projectId?.toString() ?? null,
-        accessLevel: share.accessLevel,
-        type: share.type,
-      });
-    } catch (err) {
-      next(err);
+    if (!share) {
+      throw new AppError("Invalid share token", 404);
     }
-  }
 
-  async getPublicFileDetail(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { fileId } = req.params;
-      const { shareToken } = req.query;
+    // 2️⃣ Check expire
+    if (share.expiresAt && new Date() > new Date(share.expiresAt)) {
+      throw new AppError("Share link expired", 410);
+    }
 
-      if (!shareToken || typeof shareToken !== "string") {
-        throw new AppError("Missing share token", 401);
-      }
-
-      console.log("👉 ShareController hit: getPublicFileDetail", { fileId });
-      
-      const result = await fileService.getFileDetailPublic(fileId, shareToken);
-      return res.json(result);
-    } catch (err) { next(err); }
+    // 3️⃣ Trả dữ liệu để FE redirect
+    return res.json({
+      fileId: share.fileId.toString(),
+      projectId: share.projectId?.toString() ?? null,
+      accessLevel: share.accessLevel,
+      type: share.type,
+    });
   }
 }
+// bimcde-be\src\modules\file\controllers\share.controller.ts
