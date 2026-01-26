@@ -13,7 +13,7 @@ import { ViewController } from "../modules/view/controllers/view.controller";
 import { ActivityController } from "../modules/activity/controllers/activity.controller";
 import { ReleaseController } from "../modules/release/controllers/release.controller";
 import TopicsController from "../modules/topic/controllers/topics.controller";
-import { TodoController } from "../modules/todo/controllers/todo.controller";
+import { TodoController as Todo3dController } from "../modules/todo3d/controllers/todo.controller";
 import ViewController3d from "../modules/view3d/controllers/view.controller";
 import { TeamController } from "../modules/team/controllers/team.controllers";
 
@@ -30,7 +30,7 @@ apiRouter.use("/projects", ProjectController);
 apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
-apiRouter.use("/todos", TodoController);
+apiRouter.use("/todos3d", Todo3dController);
 apiRouter.use("/views3d", ViewController3d);
 apiRouter.use("/team", TeamController);
 apiRouter.use("/views", ViewController);
