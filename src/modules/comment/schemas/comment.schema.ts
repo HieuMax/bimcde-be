@@ -3,9 +3,14 @@ import { IComment } from "../interfaces/comment.interface";
 
 const CommentSchema = new Schema<IComment>(
   {
-    content: { type: String, required: true },
+    content: { type: String, required: true, trim: true },
     targetId: { type: Schema.Types.ObjectId, required: true },
-    targetType: { type: String, enum: ["file", "folder"], required: true },
+    targetType: {
+      type: String,
+      enum: ["file", "folder", "release", "view"],
+      required: true,
+      trim: true,
+    },
     createdBy: { type: Schema.Types.ObjectId, ref: "Account", required: true },
   },
   { timestamps: true }

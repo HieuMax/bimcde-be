@@ -8,6 +8,7 @@ import archiver from "archiver";
 import { Response } from "express";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { AppError } from "../../../utils/AppError";
+import ViewModel from "../../view/schemas/view.schema";
 import path from "path";
 
 export default class FileService {
@@ -67,7 +68,7 @@ export default class FileService {
     fileData: Express.MulterS3.File,
     projectId: string,
     folderId: string | null | undefined,
-    userId: string
+    userId: string,
   ) {
     let validFolderId: Types.ObjectId | null = null;
 
@@ -95,7 +96,7 @@ export default class FileService {
         existingFile.lockedBy?.toString() !== userId
       ) {
         throw new Error(
-          "File is locked by another user. Cannot upload new version."
+          "File is locked by another user. Cannot upload new version.",
         );
       }
     }
@@ -160,7 +161,7 @@ export default class FileService {
   async moveFile(
     fileId: string,
     destinationFolderId: string | null,
-    userId: string
+    userId: string,
   ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found"); // Hoặc throw new AppError("File not found", 404);
@@ -195,7 +196,7 @@ export default class FileService {
 
     if (duplicate) {
       throw new Error(
-        `A file with name "${file.name}" already exists in the destination folder.`
+        `A file with name "${file.name}" already exists in the destination folder.`,
       );
     }
 
@@ -211,7 +212,7 @@ export default class FileService {
   async moveManyFiles(
     fileIds: string[],
     destinationFolderId: string | null,
-    userId: string
+    userId: string,
   ) {
     const sourceFiles = await FileModel.find({
       _id: { $in: fileIds },
@@ -259,12 +260,12 @@ export default class FileService {
     if (duplicateFiles.length > 0) {
       const duplicateNames = duplicateFiles.map((f) => f.name).join(", ");
       throw new Error(
-        `Destination already contains files with names: ${duplicateNames}. Move cancelled.`
+        `Destination already contains files with names: ${duplicateNames}. Move cancelled.`,
       );
     }
 
     const lockedFile = sourceFiles.find(
-      (f) => f.isLocked && f.lockedBy?.toString() !== userId
+      (f) => f.isLocked && f.lockedBy?.toString() !== userId,
     );
     if (lockedFile) {
       throw new Error(`File "${lockedFile.name}" is locked. Move cancelled.`);
@@ -272,7 +273,7 @@ export default class FileService {
 
     const result = await FileModel.updateMany(
       { _id: { $in: fileIds } },
-      { $set: { folderId: destFolderIdObj } }
+      { $set: { folderId: destFolderIdObj } },
     );
 
     return result;
@@ -313,14 +314,33 @@ export default class FileService {
 
     file.isDeleted = true;
     file.deletedAt = new Date();
-    return await file.save();
-  }
+    await file.save();
+    // 2. [NEW] Cascade Delete
+    try {
+      await ViewModel.deleteMany({ relatedFileId: file._id });
+    } catch (error) {
+      console.error(`Failed to cascade delete views for file ${fileId}`, error);
+    }
 
+    return file;
+  }
+  async restoreFile(fileId: string, userId: string) {
+    const file = await FileModel.findOne({ _id: fileId, isDeleted: true });
+    if (!file) throw new AppError("File not found or already restored", 404);
+
+    // Kiểm tra quyền (nếu cần)
+    // if (file.isLocked && ...)
+
+    file.isDeleted = false;
+    file.deletedAt = undefined;
+    await file.save();
+    return file;
+  }
   // --- US51: Bulk Check in / check out folder / file  ---
   async toggleLockMany(
     folderId: string,
     userId: string,
-    action: "LOCK" | "UNLOCK"
+    action: "LOCK" | "UNLOCK",
   ) {
     const subFolders = await FolderModel.find({
       path: { $regex: `,${folderId},` },
@@ -345,7 +365,7 @@ export default class FileService {
             lockedBy: new Types.ObjectId(userId),
             lockedAt: new Date(),
           },
-        }
+        },
       );
       return {
         modifiedCount: result.modifiedCount,
@@ -362,7 +382,7 @@ export default class FileService {
         {
           $set: { isLocked: false },
           $unset: { lockedBy: 1, lockedAt: 1 },
-        }
+        },
       );
       return {
         modifiedCount: result.modifiedCount,
@@ -372,25 +392,38 @@ export default class FileService {
   }
 
   // --- US45: Download Single File ---
-  async downloadFile(fileId: string, res: Response) {
+  async downloadFile(fileId: string, res: Response, version?: number) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
 
-    const latestVersion = file.versions[file.versions.length - 1];
-    if (!latestVersion || !latestVersion.storageKey) {
+    let targetVersion;
+
+    if (version) {
+      // 1. Nếu có version cụ thể, tìm trong mảng versions
+      targetVersion = file.versions.find((v) => v.version === version);
+      if (!targetVersion) throw new Error(`Version ${version} not found`);
+    } else {
+      // 2. Nếu không, lấy version mới nhất (Logic cũ)
+      targetVersion = file.versions[file.versions.length - 1];
+    }
+
+    if (!targetVersion || !targetVersion.storageKey) {
       throw new Error("File content not found");
     }
 
     const command = new GetObjectCommand({
       Bucket: env.R2_BUCKET_NAME,
-      Key: latestVersion.storageKey,
+      Key: targetVersion.storageKey,
     });
     const s3Response = await s3Client.send(command);
 
-    res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
+    // Thêm version vào tên file khi download để dễ phân biệt
+    const fileName = version ? `v${version}_${file.name}` : file.name;
+
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.setHeader(
       "Content-Type",
-      latestVersion.mimeType || "application/octet-stream"
+      targetVersion.mimeType || "application/octet-stream",
     );
 
     (s3Response.Body as any).pipe(res);
@@ -421,7 +454,7 @@ export default class FileService {
 
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${rootFolder.name}.zip"`
+      `attachment; filename="${rootFolder.name}.zip"`,
     );
     res.setHeader("Content-Type", "application/zip");
 
@@ -469,7 +502,7 @@ export default class FileService {
   async downloadBulk(
     items: { id: string; type: "file" | "folder" }[],
     projectId: string,
-    res: Response
+    res: Response,
   ) {
     let projectName = "Project";
     try {
@@ -485,7 +518,7 @@ export default class FileService {
 
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${zipFileName}.zip"`
+      `attachment; filename="${zipFileName}.zip"`,
     );
     res.setHeader("Content-Type", "application/zip");
 
@@ -506,7 +539,7 @@ export default class FileService {
   private async addFileToArchive(
     archive: archiver.Archiver,
     fileId: string,
-    folderPathInZip: string
+    folderPathInZip: string,
   ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) return;
@@ -534,7 +567,7 @@ export default class FileService {
   // --- HELPER: Add 1 folder to ZIP ---
   private async addFolderToArchive(
     archive: archiver.Archiver,
-    folderId: string
+    folderId: string,
   ) {
     const rootFolder = await FolderModel.findOne({
       _id: folderId,
@@ -599,7 +632,7 @@ export default class FileService {
 
       const result = await FileModel.updateMany(
         { _id: { $in: objectIds }, isDeleted: false },
-        { $set: { tags: tagObjectIds } }
+        { $set: { tags: tagObjectIds } },
       );
 
       // Return the updated files with populated tags
