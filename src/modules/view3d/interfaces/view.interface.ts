@@ -31,6 +31,7 @@ export interface IView extends Document {
             fileUrl?: string;
         }[];
         thumbnail?: string; // Base64 string
+        modelOpacity?: number;
     };
 
     createdAt: Date;
