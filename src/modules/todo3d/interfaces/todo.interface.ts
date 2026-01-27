@@ -49,6 +49,7 @@ export interface ITodo extends Document {
       fileUrl?: string;
     }[];
     thumbnail?: string; // Base64 string
+    modelOpacity?: number;
   };
   attachments?: IAttachment[];
   createdAt: Date;
