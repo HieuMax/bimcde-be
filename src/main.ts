@@ -6,6 +6,8 @@ import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 const bodyParser = require("body-parser");
 import { startCleanupJob } from "./modules/system/services/cleanup.service";
+import dotenv from 'dotenv';
+dotenv.config();
 
 const app = express();
 
@@ -17,22 +19,23 @@ const bootstrap = async () => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(
-    cors({
+    cors({ 
       origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
+        return callback(null, true);
+        // if (!origin) return callback(null, true);
 
-        if (env.WHITE_LISTED_DOMAINS.includes(origin)) {
-          callback(null, true);
-        } else {
-          console.log("Blocked by CORS:", origin);
-          callback(new Error("Not allowed by CORS"));
-        }
+        // if (env.WHITE_LISTED_DOMAINS.includes(origin)) {
+        //   callback(null, true);
+        // } else {
+        //   console.log("Blocked by CORS:", origin);
+        //   callback(new Error("Not allowed by CORS"));
+        // }
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE"],
     })
   );
-
+  
   app.use("/api", apiRouter);
   logEnv();
   connectDB();
@@ -60,6 +63,7 @@ const logEnv = () => {
   console.log(`PORT: ${env.PORT}`);
   console.log(`APP_URL: ${env.APP_URL}`);
   console.log(`APP_TITLE: ${env.APP_TITLE}`);
+  console.log(`CLIENT_URL: ${env.CLIENT_URL}`);
   console.log(`SWAGGER_VERSION: ${env.SWAGGER_VERSION}`);
   console.log(`SWAGGER_PATH: ${env.SWAGGER_PATH}`);
   console.log(`WHITE_LISTED_DOMAINS: ${env.WHITE_LISTED_DOMAINS}`);
