@@ -8,6 +8,14 @@ export interface IAttachment {
   fileId?: string; // (Optional)
 }
 
+export interface IModelTransform {
+  modelID: number;
+  fileUrl: string;
+  position: { x: number, y: number, z: number };
+  rotation: { x: number, y: number, z: number };
+  scale: number;
+}
+
 export interface ITodo extends Document {
   title: string;
   description?: string;
@@ -50,6 +58,7 @@ export interface ITodo extends Document {
     }[];
     thumbnail?: string; // Base64 string
     modelOpacity?: number;
+    modelTransforms?: IModelTransform[];
   };
   attachments?: IAttachment[];
   createdAt: Date;
