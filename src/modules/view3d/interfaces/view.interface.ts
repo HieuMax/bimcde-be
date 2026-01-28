@@ -1,4 +1,5 @@
 import mongoose, { Document } from "mongoose";
+import { IModelTransform } from "../../todo3d/interfaces/todo.interface";
 
 export interface IView extends Document {
     title: string;
@@ -32,6 +33,7 @@ export interface IView extends Document {
         }[];
         thumbnail?: string; // Base64 string
         modelOpacity?: number;
+        modelTransforms?: IModelTransform[];
     };
 
     createdAt: Date;
