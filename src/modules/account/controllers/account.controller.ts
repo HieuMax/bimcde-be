@@ -75,7 +75,7 @@ AccountController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 AccountController.post(
@@ -104,7 +104,7 @@ AccountController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 AccountController.get(
@@ -125,7 +125,7 @@ AccountController.get(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 AccountController.post(
@@ -146,7 +146,7 @@ AccountController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 AccountController.post(
@@ -167,7 +167,49 @@ AccountController.post(
         error: error.message,
       });
     }
-  }
+  },
+);
+
+// AccountController.get(
+//   "/all",
+//   authenticate,
+//   async (req: Request, res: Response) => {
+//     try {
+//       const users = await accountService.getAllUsers();
+//       res.status(200).json({
+//         success: true,
+//         message: "Lấy danh sách người dùng thành công.",
+//         users,
+//       });
+//     } catch (error: any) {
+//       res.status(500).json({
+//         success: false,
+//         message: "Xảy ra lỗi khi lấy danh sách người dùng.",
+//         error: error.message,
+//       });
+//     }
+//   },
+// );
+
+AccountController.get(
+  "/getAllUser",
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const result = await accountService.getAllUser(req.userId);
+      res.status(200).json({
+        success: true,
+        message: "Lấy danh sách người dùng thành công.",
+        result: result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: "Xảy ra lỗi khi lấy danh sách người dùng.",
+        error: error.message,
+      });
+    }
+  },
 );
 AccountController.get(
   "/search",

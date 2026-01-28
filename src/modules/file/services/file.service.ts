@@ -15,6 +15,7 @@ import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import archiver from "archiver";
 import { Response } from "express";
+import ViewModel from "../../view/schemas/view.schema";
 import path from "path";
 
  console.log("📧 MAIL CONFIG CHECK:", {
@@ -349,7 +350,7 @@ export default class FileService {
     fileData: Express.MulterS3.File,
     projectId: string,
     folderId: string | null | undefined,
-    userId: string
+    userId: string,
   ) {
     let validFolderId: Types.ObjectId | null = null;
 
@@ -367,8 +368,13 @@ export default class FileService {
     });
 
     if (existingFile) {
-      if (existingFile.isLocked && existingFile.lockedBy?.toString() !== userId) {
-        throw new Error("File is locked by another user. Cannot upload new version.");
+      if (
+        existingFile.isLocked &&
+        existingFile.lockedBy?.toString() !== userId
+      ) {
+        throw new Error(
+          "File is locked by another user. Cannot upload new version.",
+        );
       }
     }
 
@@ -473,7 +479,12 @@ export default class FileService {
     };
   }
 
-  async moveFile(fileId: string, destinationFolderId: string | null, userId: string) {
+  // --- US43: Move folder / file to … ---
+  async moveFile(
+    fileId: string,
+    destinationFolderId: string | null,
+    userId: string,
+  ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
 
@@ -493,15 +504,33 @@ export default class FileService {
     });
     if (duplicate) throw new Error(`A file with name "${file.name}" already exists in the destination folder.`);
 
-    if (file.isLocked && file.lockedBy?.toString() !== userId) throw new Error("File is locked by another user.");
+    if (duplicate) {
+      throw new Error(
+        `A file with name "${file.name}" already exists in the destination folder.`,
+      );
+    }
+
+    if (file.isLocked && file.lockedBy?.toString() !== userId) {
+      throw new Error("File is locked by another user. Cannot move.");
+    }
 
     file.folderId = destFolderIdObj;
     return await file.save();
   }
 
-  async moveManyFiles(fileIds: string[], destinationFolderId: string | null, userId: string) {
-    const sourceFiles = await FileModel.find({ _id: { $in: fileIds }, isDeleted: false });
-    if (sourceFiles.length === 0) throw new Error("No valid files found to move");
+  // --- US43: Bulk Move Files (All-or-Nothing) ---
+  async moveManyFiles(
+    fileIds: string[],
+    destinationFolderId: string | null,
+    userId: string,
+  ) {
+    const sourceFiles = await FileModel.find({
+      _id: { $in: fileIds },
+      isDeleted: false,
+    });
+
+    if (sourceFiles.length === 0)
+      throw new Error("No valid files found to move");
 
     const projectId = sourceFiles[0].projectId;
     let destFolderIdObj: Types.ObjectId | null = null;
@@ -524,13 +553,24 @@ export default class FileService {
 
     if (duplicateFiles.length > 0) {
       const duplicateNames = duplicateFiles.map((f) => f.name).join(", ");
-      throw new Error(`Destination already contains files: ${duplicateNames}. Move cancelled.`);
+      throw new Error(
+        `Destination already contains files with names: ${duplicateNames}. Move cancelled.`,
+      );
     }
 
-    const lockedFile = sourceFiles.find((f) => f.isLocked && f.lockedBy?.toString() !== userId);
-    if (lockedFile) throw new Error(`File "${lockedFile.name}" is locked.`);
+    const lockedFile = sourceFiles.find(
+      (f) => f.isLocked && f.lockedBy?.toString() !== userId,
+    );
+    if (lockedFile) {
+      throw new Error(`File "${lockedFile.name}" is locked. Move cancelled.`);
+    }
 
-    return await FileModel.updateMany({ _id: { $in: fileIds } }, { $set: { folderId: destFolderIdObj } });
+    const result = await FileModel.updateMany(
+      { _id: { $in: fileIds } },
+      { $set: { folderId: destFolderIdObj } },
+    );
+
+    return result;
   }
 
   async toggleLock(fileId: string, userId: string, action: "LOCK" | "UNLOCK") {
@@ -558,42 +598,112 @@ export default class FileService {
     if (file.isLocked && file.lockedBy?.toString() !== userId) throw new Error("File is locked. Cannot delete.");
     file.isDeleted = true;
     file.deletedAt = new Date();
-    return await file.save();
-  }
+    await file.save();
+    // 2. [NEW] Cascade Delete
+    try {
+      await ViewModel.deleteMany({ relatedFileId: file._id });
+    } catch (error) {
+      console.error(`Failed to cascade delete views for file ${fileId}`, error);
+    }
 
-  async toggleLockMany(folderId: string, userId: string, action: "LOCK" | "UNLOCK") {
-    const subFolders = await FolderModel.find({ path: { $regex: `,${folderId},` }, isDeleted: false }).select("_id");
-    const targetFolderIds = [new Types.ObjectId(folderId), ...subFolders.map((f) => f._id)];
+    return file;
+  }
+  async restoreFile(fileId: string, userId: string) {
+    const file = await FileModel.findOne({ _id: fileId, isDeleted: true });
+    if (!file) throw new AppError("File not found or already restored", 404);
+
+    // Kiểm tra quyền (nếu cần)
+    // if (file.isLocked && ...)
+
+    file.isDeleted = false;
+    file.deletedAt = undefined;
+    await file.save();
+    return file;
+  }
+  // --- US51: Bulk Check in / check out folder / file  ---
+  async toggleLockMany(
+    folderId: string,
+    userId: string,
+    action: "LOCK" | "UNLOCK",
+  ) {
+    const subFolders = await FolderModel.find({
+      path: { $regex: `,${folderId},` },
+      isDeleted: false,
+    }).select("_id");
+
+    const targetFolderIds = [
+      new Types.ObjectId(folderId),
+      ...subFolders.map((f) => f._id),
+    ];
 
     if (action === "LOCK") {
       const result = await FileModel.updateMany(
-        { folderId: { $in: targetFolderIds }, isDeleted: false, isLocked: false },
-        { $set: { isLocked: true, lockedBy: new Types.ObjectId(userId), lockedAt: new Date() } }
+        {
+          folderId: { $in: targetFolderIds },
+          isDeleted: false,
+          isLocked: false,
+        },
+        {
+          $set: {
+            isLocked: true,
+            lockedBy: new Types.ObjectId(userId),
+            lockedAt: new Date(),
+          },
+        },
       );
       return { modifiedCount: result.modifiedCount, message: `Locked ${result.modifiedCount} files.` };
     } else {
       const result = await FileModel.updateMany(
-        { folderId: { $in: targetFolderIds }, isDeleted: false, isLocked: true, lockedBy: new Types.ObjectId(userId) },
-        { $set: { isLocked: false }, $unset: { lockedBy: 1, lockedAt: 1 } }
+        {
+          folderId: { $in: targetFolderIds },
+          isDeleted: false,
+          isLocked: true,
+          lockedBy: new Types.ObjectId(userId),
+        },
+        {
+          $set: { isLocked: false },
+          $unset: { lockedBy: 1, lockedAt: 1 },
+        },
       );
       return { modifiedCount: result.modifiedCount, message: `Unlocked ${result.modifiedCount} files.` };
     }
   }
 
-  async downloadFile(fileId: string, res: Response) {
+  // --- US45: Download Single File ---
+  async downloadFile(fileId: string, res: Response, version?: number) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
-    const latestVersion = file.versions[file.versions.length - 1];
-    if (!latestVersion || !latestVersion.storageKey) throw new Error("File content not found");
+
+    let targetVersion;
+
+    if (version) {
+      // 1. Nếu có version cụ thể, tìm trong mảng versions
+      targetVersion = file.versions.find((v) => v.version === version);
+      if (!targetVersion) throw new Error(`Version ${version} not found`);
+    } else {
+      // 2. Nếu không, lấy version mới nhất (Logic cũ)
+      targetVersion = file.versions[file.versions.length - 1];
+    }
+
+    if (!targetVersion || !targetVersion.storageKey) {
+      throw new Error("File content not found");
+    }
 
     const command = new GetObjectCommand({
       Bucket: env.R2_BUCKET_NAME,
-      Key: latestVersion.storageKey,
+      Key: targetVersion.storageKey,
     });
     const s3Response = await s3Client.send(command);
 
-    res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
-    res.setHeader("Content-Type", latestVersion.mimeType || "application/octet-stream");
+    // Thêm version vào tên file khi download để dễ phân biệt
+    const fileName = version ? `v${version}_${file.name}` : file.name;
+
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader(
+      "Content-Type",
+      targetVersion.mimeType || "application/octet-stream",
+    );
+
     (s3Response.Body as any).pipe(res);
   }
 
@@ -611,7 +721,11 @@ export default class FileService {
     const allFiles = await FileModel.find({ folderId: { $in: allFolderIds }, isDeleted: false }).lean();
 
     const archive = archiver("zip", { zlib: { level: 9 } });
-    res.setHeader("Content-Disposition", `attachment; filename="${rootFolder.name}.zip"`);
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${rootFolder.name}.zip"`,
+    );
     res.setHeader("Content-Type", "application/zip");
     archive.pipe(res);
 
@@ -642,12 +756,28 @@ export default class FileService {
     await archive.finalize();
   }
 
-  async downloadBulk(items: { id: string; type: "file" | "folder" }[], projectId: string, res: Response) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const zipFileName = `Download_${timestamp}`;
+  // US45: Download file / folders in bulk
+  async downloadBulk(
+    items: { id: string; type: "file" | "folder" }[],
+    projectId: string,
+    res: Response,
+  ) {
+    let projectName = "Project";
+    try {
+    } catch (e) {}
+
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, 19);
+    const zipFileName = `${projectName}_${timestamp}`;
+
     const archive = archiver("zip", { zlib: { level: 9 } });
 
-    res.setHeader("Content-Disposition", `attachment; filename="${zipFileName}.zip"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${zipFileName}.zip"`,
+    );
     res.setHeader("Content-Type", "application/zip");
     archive.pipe(res);
 
@@ -658,7 +788,12 @@ export default class FileService {
     await archive.finalize();
   }
 
-  private async addFileToArchive(archive: archiver.Archiver, fileId: string, folderPathInZip: string) {
+  // --- HELPER: Add 1 file to ZIP ---
+  private async addFileToArchive(
+    archive: archiver.Archiver,
+    fileId: string,
+    folderPathInZip: string,
+  ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) return;
     const latestVer = file.versions[file.versions.length - 1];
@@ -673,8 +808,15 @@ export default class FileService {
     }
   }
 
-  private async addFolderToArchive(archive: archiver.Archiver, folderId: string) {
-    const rootFolder = await FolderModel.findOne({ _id: folderId, isDeleted: false });
+  // --- HELPER: Add 1 folder to ZIP ---
+  private async addFolderToArchive(
+    archive: archiver.Archiver,
+    folderId: string,
+  ) {
+    const rootFolder = await FolderModel.findOne({
+      _id: folderId,
+      isDeleted: false,
+    });
     if (!rootFolder) return;
     const allFolders = await FolderModel.find({ $or: [{ _id: folderId }, { path: { $regex: `,${folderId},` } }], isDeleted: false }).lean();
     const folderMap = new Map(allFolders.map((f) => [f._id.toString(), f]));
@@ -710,8 +852,19 @@ export default class FileService {
       const objectIds = fileIds.map((id) => new Types.ObjectId(id));
       const validTagIds = tagIds.filter((id) => id);
       const tagObjectIds = validTagIds.map((id) => new Types.ObjectId(id));
-      await FileModel.updateMany({ _id: { $in: objectIds }, isDeleted: false }, { $set: { tags: tagObjectIds } });
-      return await FileModel.find({ _id: { $in: objectIds }, isDeleted: false }).populate("tags");
+
+      const result = await FileModel.updateMany(
+        { _id: { $in: objectIds }, isDeleted: false },
+        { $set: { tags: tagObjectIds } },
+      );
+
+      // Return the updated files with populated tags
+      const updatedFiles = await FileModel.find({
+        _id: { $in: objectIds },
+        isDeleted: false,
+      }).populate("tags");
+
+      return updatedFiles;
     } catch (error) {
       console.error("Error in assignTags:", error);
       throw error;

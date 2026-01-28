@@ -22,9 +22,7 @@ const projectSchema = new Schema<IProject>(
       type: Object,
       default: {},
     },
-    lastVisitedOn: {
-      type: Date,
-    },
+
     size: {
       type: String,
       default: "0 MB",

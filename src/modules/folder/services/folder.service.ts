@@ -164,9 +164,11 @@ export default class FolderService {
       ),
       FileModel.updateMany(
         { folderId: { $in: allIds } },
-        { $set: deletePayload }
+        { $set: deletePayload },
       ),
     ]);
+
+    return folder;
   }
 
   /* =========================
@@ -175,7 +177,7 @@ export default class FolderService {
   async moveFolder(
     folderId: string,
     destinationParentId: string | null,
-    userId: string
+    userId: string,
   ) {
     const folder = await FolderModel.findOne({
       _id: folderId,
@@ -227,7 +229,7 @@ export default class FolderService {
     if (duplicate) {
       throw new AppError(
         `Folder "${folder.name}" already exists in destination`,
-        400
+        400,
       );
     }
 
@@ -280,14 +282,45 @@ export default class FolderService {
       .filter(Boolean)
       .map((id) => new Types.ObjectId(id));
 
-    await FolderModel.updateMany(
-      { _id: { $in: objectIds }, isDeleted: false },
-      { $set: { tags: tagObjectIds } }
-    );
+      const result = await FolderModel.updateMany(
+        { _id: { $in: objectIds }, isDeleted: false },
+        { $set: { tags: tagObjectIds } },
+      );
 
     return await FolderModel.find({
       _id: { $in: objectIds },
       isDeleted: false,
     }).populate("tags");
+  }
+  // [NEW] Restore Folder
+  async restoreFolder(folderId: string, userId: string) {
+    const folder = await FolderModel.findOne({
+      _id: folderId,
+      isDeleted: true,
+    });
+    if (!folder)
+      throw new AppError("Folder not found or already restored", 404);
+
+    // Tìm tất cả subfolder đã bị xóa cùng đợt (dựa vào path)
+    const subFolders = await FolderModel.find({
+      path: { $regex: `,${folderId},` },
+      isDeleted: true,
+    }).select("_id");
+
+    const allIds = [folder._id, ...subFolders.map((f) => f._id)];
+    const restorePayload = { isDeleted: false, deletedAt: undefined };
+
+    await Promise.all([
+      FolderModel.updateMany(
+        { _id: { $in: allIds } },
+        { $set: restorePayload },
+      ), // Restore folders
+      FileModel.updateMany(
+        { folderId: { $in: allIds } },
+        { $set: restorePayload },
+      ), // Restore files inside
+    ]);
+
+    return folder;
   }
 }

@@ -79,7 +79,7 @@ export default class AccountService {
       }
       const passwordIsValid = await bcrypt.compare(
         userData.password,
-        user.password
+        user.password,
       );
 
       if (!passwordIsValid) {
@@ -158,7 +158,7 @@ export default class AccountService {
 
   async changePassword(
     userId: Types.ObjectId | undefined,
-    body: { currentPassword: string; newPassword: string }
+    body: { currentPassword: string; newPassword: string },
   ) {
     try {
       const user = await AccountModel.findById(userId);
@@ -167,7 +167,7 @@ export default class AccountService {
       }
       const passwordIsValid = await bcrypt.compare(
         body.currentPassword,
-        user.password
+        user.password,
       );
       if (!passwordIsValid) {
         throw new Error("Mật khẩu hiện tại không đúng.");
@@ -198,19 +198,26 @@ export default class AccountService {
       throw error;
     }
   }
-  async searchAccounts(query: string) {
-    const regex = new RegExp(query, "i");
 
-    const users = await AccountModel.find({
-      $or: [
-        { email: regex },
-        { fullName: regex },
-      ],
-    })
-      .select("_id email fullName")
-      .limit(10);
+  // async getAllUsers() {
+  //   try {
+  //     const users = await AccountModel.find().select("-password");
+  //     return users;
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
 
-    return users;
+  async getAllUser(userId: Types.ObjectId | undefined) {
+    try {
+      if (!userId) {
+        throw new Error("User không hợp lệ.");
+      }
+
+      const users = await AccountModel.find();
+      return users;
+    } catch (error) {
+      throw error;
+    }
   }
-
 }
