@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import express from "express";
 import AccountService from "../services/account.service";
-import AccountModel from "../models/account.model";
 import { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 const AccountController = express.Router();
@@ -210,48 +209,6 @@ AccountController.get(
       });
     }
   },
-);
-AccountController.get(
-  "/search",
-  authenticate,
-  async (req: Request, res: Response) => {
-    const q = req.query.q as string;
-
-    const accounts = await AccountModel.find({
-      email: { $regex: q, $options: "i" },
-    })
-      .select("_id email fullName avatar")
-      .limit(10);
-
-    res.json(accounts);
-  }
-
-);
-
-// Public minimal search: allow lookup by full email (exact or case-insensitive)
-// This helps sharing flow to detect if an entered email already has an account
-AccountController.get(
-  "/search-public",
-  async (req: Request, res: Response) => {
-    try {
-      const q = (req.query.q as string) || "";
-      if (!q || !q.includes("@")) {
-        return res.json([]);
-      }
-
-      const email = q.trim();
-      const accounts = await AccountModel.find({
-        email: { $regex: `^${email}$`, $options: "i" },
-      })
-        .select("_id email fullName avatar")
-        .limit(5);
-
-      return res.json(accounts);
-    } catch (err) {
-      console.error("search-public error", err);
-      return res.status(500).json({ success: false, message: "Internal Server Error" });
-    }
-  }
 );
 
 export { AccountController };

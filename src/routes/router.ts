@@ -16,7 +16,9 @@ import TopicsController from "../modules/topic/controllers/topics.controller";
 import { TodoController as Todo3dController } from "../modules/todo3d/controllers/todo.controller";
 import ViewController3d from "../modules/view3d/controllers/view.controller";
 import { TeamController } from "../modules/team/controllers/team.controllers";
-
+import View2DController from "../modules/view2d/controllers/view2d.controller";
+import Todo2DController from "../modules/todo2d/controllers/todo2d.controller";
+import ShareRouter from "../modules/file/routes/share.route"
 const apiRouter = express.Router();
 
 apiRouter.use("/accounts", AccountController);
@@ -30,11 +32,14 @@ apiRouter.use("/projects", ProjectController);
 apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
+apiRouter.use("/views2d", View2DController);
+apiRouter.use("/todos2d", Todo2DController);
 apiRouter.use("/todos3d", Todo3dController);
 apiRouter.use("/views3d", ViewController3d);
 apiRouter.use("/team", TeamController);
 apiRouter.use("/views", ViewController);
 apiRouter.use("/activities", ActivityController);
 apiRouter.use("/releases", ReleaseController);
+apiRouter.use("/share", ShareRouter);
 
 export { apiRouter };

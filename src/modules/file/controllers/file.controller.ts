@@ -12,8 +12,7 @@ import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import M
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ActivityService from "../../activity/services/activity.service";
 
-import { authenticate } from "../../../middlewares/authMiddlewares";
-
+const PublicFileController = express.Router();
 const FileController = express.Router();
 const fileService = new FileService();
 const activityService = new ActivityService();
@@ -34,16 +33,30 @@ const upload = multer({
   }),
 });
 
-FileController.get(
+PublicFileController.get(
   "/public/:id",
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { shareToken } = req.query; // Lấy token từ query string
+    const { shareToken } = req.query;
+
+    console.log("👉 [Controller] Hit /public/:id", id); 
 
     if (!shareToken) throw new AppError("Missing Token", 401);
 
     const result = await fileService.getFileDetailPublic(id as string, shareToken as string);
     res.json(result);
+  })
+);
+
+PublicFileController.get(
+  "/public/:id/download",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+
+    await fileService.downloadPublicFile(id as string, shareToken as string, res);
   })
 );
 /**

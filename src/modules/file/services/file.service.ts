@@ -1,13 +1,12 @@
-// // bimcde-be\src\modules\file\services\file.service.ts
 import FileModel from "../schemas/file.schema";
 import FolderModel from "../../folder/schemas/folder.schema";
 import ProjectModel from "../../project/schemas/project.schema";
 import ShareModel from "../schemas/share.schema";
+import ViewModel from "../../view3d/schemas/view.schemas";
 import { AppError } from "../../../utils/AppError";
 import { s3Client } from "../../../lib/r2.lib";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../../../env";
-// import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import mongoose, { Types } from "mongoose";
@@ -15,7 +14,6 @@ import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import archiver from "archiver";
 import { Response } from "express";
-import ViewModel from "../../view/schemas/view.schema";
 import path from "path";
 
  console.log("📧 MAIL CONFIG CHECK:", {
@@ -46,27 +44,33 @@ export default class FileService {
   }) {
     // 1. Lấy thông tin file
     const file = await FileModel.findById(payload.fileId);
-    
-    // Fallback nếu file không tồn tại (để tránh crash luồng gửi mail nếu đang test)
+    if (!file) {
+      throw new AppError("File không tồn tại – không thể tạo link chia sẻ", 404);
+    }
     const fileName = file ? file.name : "Tài liệu";
-    // const projectId = file ? file.projectId : "unknown-project";
 
     let finalProjectId = "unknown-project";
 
     if (payload.projectId && payload.projectId !== "undefined" && payload.projectId !== "null") {
-        // 1. Ưu tiên lấy từ tham số truyền vào
+        
         finalProjectId = payload.projectId;
     } else if (file && file.projectId) {
-        // 2. Nếu không có tham số, lấy từ File trong DB (ép kiểu về string)
+        
         finalProjectId = (file.projectId as any)._id 
             ? (file.projectId as any)._id.toString() 
             : file.projectId.toString();
     }
     const token = uuidv4();
 
+    console.log("🧪 SHARE DEBUG", {
+      payloadFileId: payload.fileId,
+      fileExists: !!file,
+      realFileId: file?._id.toString(),
+    });
+
     // 2. Lưu thông tin Share vào DB
     const shareRecord = await ShareModel.create({
-      fileId: payload.fileId,
+      fileId: file._id,
       projectId: finalProjectId,
       sharedBy: payload.userId,
       type: payload.type,
@@ -78,10 +82,12 @@ export default class FileService {
       token: token,
     });
 
-    const clientUrl = env.CLIENT_URL || "http://localhost:3000";
+    const clientUrl = env.CLIENT_URL
     const shareLink = `${clientUrl}/share/${token}`;
+    const apiUrl = env.APP_URL 
+    const downloadLink = `${apiUrl}/files/public/${file._id}/download?shareToken=${token}`;
 
-    console.log("🔗 Generated Share Link:", shareLink);
+    console.log("🔗 Generated Share Link:", shareLink, downloadLink);
 
     // 4. Gửi Mail (Nếu có danh sách người nhận)
     if (payload.recipients && payload.recipients.length > 0) {
@@ -93,7 +99,10 @@ export default class FileService {
           payload.recipients,
           fileName,
           shareLink,
-          payload.note
+          payload.accessLevel, 
+          downloadLink,
+          payload.note,
+
         ).catch((err) => console.error("❌ Email Delivery Error:", err));
       }
     }
@@ -106,197 +115,266 @@ export default class FileService {
   }
 
   // Helper gửi HTML Mail
-
   private async sendShareEmails(
     emails: string[],
     fileName: string,
     link: string,
-    note?: string,
+    accessLevel: string,    
+    downloadLink: string,   
+    note?: string,          
     senderName: string = "A BIM CDE user",
-    projectName: string = "a BIM CDE project"
+    projectName: string = "a BIM CDE project",
   ) {
+
+    // Logic kiểm tra quyền (giữ nguyên)
+    const showDownloadButton = (accessLevel || "").toUpperCase() === "DOWNLOAD";
+
     const mailOptions = {
       from: `"BIM CDE" <${env.MAIL_USER}>`,
       to: emails.join(", "),
-      subject: `${senderName} shared a document with you`,
+      subject: `${senderName} shared "${fileName}" with you`,
       html: `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>BIM CDE Share</title>
-  </head>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BIM CDE Share</title>
+  <style>
+    /* Reset CSS cơ bản cho Email */
+    body { margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    table { border-collapse: collapse; }
+    .btn-hover:hover { opacity: 0.9; }
+  </style>
+</head>
 
-  <body style="margin:0; padding:0; background:#ffffff; font-family: Arial, Helvetica, sans-serif; color:#1f2937;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:680px; margin:0 auto; padding:32px;">
-
-    <!-- HEADER -->
+<body style="margin:0; padding:0; background-color:#f3f4f6; color:#1f2937;">
+  
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f3f4f6; padding: 40px 0;">
     <tr>
-      <td style="padding-bottom:24px;">
-        <h1 style="margin:0; font-size:24px; color:#0b5ed7;">
-          BIM CDE
-        </h1>
-      </td>
-    </tr>
-
-    <!-- GREETING -->
-    <tr>
-      <td style="padding-bottom:12px;">
-        <p style="margin:0; font-size:15px;">
-          Hi,
-        </p>
-      </td>
-    </tr>
-
-    <!-- MAIN MESSAGE -->
-    <tr>
-      <td style="padding-bottom:24px;">
-        <p style="margin:0; font-size:15px; line-height:1.6;">
-          <strong>${senderName}</strong> has shared the following item with you in a project titled:
-          <strong>${projectName}</strong>
-        </p>
-      </td>
-    </tr>
-
-    <!-- DIVIDER -->
-    <tr>
-      <td style="border-top:1px solid #e5e7eb; padding-top:24px;"></td>
-    </tr>
-
-    <!-- FILE CARD -->
-    <tr>
-      <td>
-        <table width="100%" cellpadding="0" cellspacing="0"
-          style="border:1px solid #e5e7eb; border-radius:6px; padding:16px;">
-
+      <td align="center">
+        
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px; background-color:#ffffff; border-radius:12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); overflow:hidden;">
+          
           <tr>
-            <!-- THUMBNAIL -->
-            <td width="72" valign="top">
-              <div style="
-                width:64px;
-                height:80px;
-                border:1px solid #d1d5db;
-                border-radius:4px;
-                background:#f9fafb;
-                text-align:center;
-                font-size:12px;
-                color:#6b7280;
-                line-height:80px;
-              ">
-                PDF
-              </div>
-            </td>
-
-            <!-- FILE INFO -->
-            <td valign="top" style="padding-left:16px;">
-              <p style="margin:0; font-size:15px; font-weight:600;">
-                ${fileName}
-              </p>
-
-              <p style="margin:6px 0 0 0; font-size:13px; color:#6b7280;">
-                ${senderName}
-              </p>
-
-              <p style="margin:4px 0 0 0; font-size:13px; color:#6b7280;">
-                ${new Date().toLocaleString("en-GB", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-
-              ${
-                note
-                  ? `<p style="margin:8px 0 0 0; font-size:13px; color:#374151;">
-                      Note: ${note}
-                    </p>`
-                  : ""
-              }
-            </td>
-
-            <!-- OPEN BUTTON -->
-            <td valign="middle" align="right">
-              <a href="${link}" style="
-                display:inline-block;
-                padding:10px 18px;
-                border:1px solid #cfd4dc;
-                border-radius:4px;
-                font-size:14px;
-                font-weight:600;
-                text-decoration:none;
-                color:#111827;
-                background:#f9fafb;
-              ">
-                Open
-              </a>
+            <td style="padding: 32px 40px; background-color: #ffffff; border-bottom: 1px solid #f0f0f0;">
+              <h1 style="margin:0; font-size:22px; font-weight:700; color:#2563eb; letter-spacing: -0.5px;">
+                BIM CDE
+              </h1>
             </td>
           </tr>
+
+          <tr>
+            <td style="padding: 40px;">
+              
+              <p style="margin:0 0 24px 0; font-size:16px; line-height:24px; color:#374151;">
+                Hi there,
+              </p>
+              <p style="margin:0 0 32px 0; font-size:16px; line-height:24px; color:#374151;">
+                <strong>${senderName}</strong> has shared a file with you from the project <strong>${projectName}</strong>.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border: 1px solid #e5e7eb; border-radius: 8px; background-color: #fafafa;">
+                <tr>
+                  <td style="padding: 20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                      <tr>
+                        <td width="60" valign="top" style="padding-right: 20px;">
+                           <div style="width: 48px; height: 60px; background-color: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 6px; position: relative;">
+                              <div style="position: absolute; top: 18px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
+                              <div style="position: absolute; top: 26px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
+                              <div style="position: absolute; top: 34px; left: 8px; width: 20px; height: 2px; background-color: #a5b4fc;"></div>
+                              <div style="position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 16px 16px 0; border-color: transparent #ffffff transparent transparent;"></div>
+                           </div>
+                        </td>
+                        
+                        <td valign="middle">
+                          <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #111827;">
+                            ${fileName}
+                          </p>
+                          <p style="margin: 0; font-size: 13px; color: #6b7280;">
+                             Shared by ${senderName} • ${new Date().toLocaleDateString("en-GB")}
+                          </p>
+                          ${note ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #4b5563; font-style: italic; background: #f3f4f6; padding: 6px 10px; border-radius: 4px;">"${note}"</p>` : ""}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                
+                <tr>
+                  <td style="padding: 0 20px 20px 20px;">
+                     <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                           <td width="50%" style="padding-right: 8px;">
+                              <a href="${link}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #2563eb;">
+                                 Open in Viewer
+                              </a>
+                           </td>
+
+                           ${showDownloadButton ? `
+                           <td width="50%" style="padding-left: 8px;">
+                              <a href="${downloadLink}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #ffffff; color: #374151; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #d1d5db;">
+                                 Download File
+                              </a>
+                           </td>
+                           ` : `
+                           <td width="50%"></td>
+                           `}
+                        </tr>
+                     </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 32px 0 0 0; font-size: 13px; color: #9ca3af; text-align: center;">
+                You received this email because a file was shared with you via BIM CDE.
+                <br>If the button doesn't work, verify that the link has not expired.
+              </p>
+
+            </td>
+          </tr>
+          
+          <tr>
+            <td style="background-color: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #f0f0f0;">
+              <p style="margin: 0; font-size: 12px; color: #9ca3af;">
+                © ${new Date().getFullYear()} BIM CDE Platform. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
         </table>
+
       </td>
     </tr>
-
-    <!-- DIVIDER -->
-    <tr>
-      <td style="border-top:1px solid #e5e7eb; padding-top:24px;"></td>
-    </tr>
-
-    <!-- FALLBACK -->
-    <tr>
-      <td>
-        <p style="margin:0; font-size:13px; color:#6b7280;">
-          If the button above does not work, copy and paste this link into your browser:
-        </p>
-        <p style="margin-top:6px; font-size:13px;">
-          <a href="${link}" style="color:#0b5ed7; word-break:break-all;">
-            ${link}
-          </a>
-        </p>
-      </td>
-    </tr>
-
   </table>
-  </body>
-  </html>
+
+</body>
+</html>
       `,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✅ Mail sent successfully to: ${emails.length} recipients.`);
+    console.log(`✅ Mail sent successfully.`);
   }
 
-  // --- HÀM VALIDATE TOKEN ---
+  async downloadPublicFile(fileId: string, shareToken: string, res: Response) {
+    // a. Validate Token
+    const share = await ShareModel.findOne({ token: shareToken, fileId: new Types.ObjectId(fileId) }).lean();
+    if (!share) throw new AppError("Link chia sẻ không hợp lệ", 403);
+    if (share.expiresAt && new Date() > share.expiresAt) throw new AppError("Link đã hết hạn", 410);
 
-  async getFileDetailPublic(fileId: string, shareToken: string) {
-    // 1. Check Token
-    const share = await ShareModel.findOne({ token: shareToken, fileId });
-    if (!share) throw new AppError("Link không hợp lệ", 403);
-
-    // 2. Lấy File
-    const file = await FileModel.findById(fileId).lean();
-    if (!file) throw new AppError("File không tồn tại", 404);
-
-    // 3. Tìm key file trên S3/R2
-    const ver = file.versions?.find(v => v.version === file.currentVersion) || file.versions?.[0];
-    
-    let signedUrl = "";
-    if (ver && ver.storageKey) {
-        // 4. TẠO SIGNED URL (Link xem file sống 1 giờ)
-        const command = new GetObjectCommand({
-            Bucket: env.R2_BUCKET_NAME,
-            Key: ver.storageKey,
-        });
-        signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    // b. Validate Quyền (Quan trọng!)
+    if (share.accessLevel !== "DOWNLOAD") {
+        throw new AppError("Bạn không có quyền tải file này (Chỉ xem)", 403);
     }
 
-    // 5. Trả về dữ liệu kèm Signed URL
+    // c. Tìm File
+    const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
+    if (!file) throw new AppError("File không tồn tại", 404);
+
+    const latestVersion = file.versions.find(v => v.version === file.currentVersion) 
+                       || file.versions[file.versions.length - 1];
+
+    if (!latestVersion || !latestVersion.storageKey) throw new AppError("Nội dung file bị lỗi", 404);
+
+    // d. Stream File từ R2/S3 về Client
+    try {
+      const command = new GetObjectCommand({
+        Bucket: env.R2_BUCKET_NAME,
+        Key: latestVersion.storageKey,
+      });
+      const s3Response = await s3Client.send(command);
+
+      // Set Header để trình duyệt hiểu là file tải về
+      res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
+      res.setHeader("Content-Type", latestVersion.mimeType || "application/octet-stream");
+      
+      // Pipe stream
+      (s3Response.Body as any).pipe(res);
+
+    } catch (err) {
+      console.error("S3 Download Error:", err);
+      throw new AppError("Lỗi khi tải file từ storage", 500);
+    }
+  }
+  // --- HÀM VALIDATE TOKEN ---
+  async getFileDetailPublic(fileId: string, shareToken: string) {
+    const cleanFileId = fileId.trim();
+
+    console.log(`🚀 [DEBUG SERVICE] Request Public File: ${cleanFileId}`);
+
+    if (!Types.ObjectId.isValid(cleanFileId)) {
+       throw new AppError("ID file không hợp lệ", 400);
+    }
+
+    
+    const share = await ShareModel.findOne({ 
+        token: shareToken, 
+        fileId: new Types.ObjectId(cleanFileId) 
+    }).lean();
+
+    if (!share) {
+        console.error("❌ [DEBUG] Share token not found or mismatch fileId");
+        throw new AppError("Link chia sẻ không hợp lệ hoặc đã hết hạn", 403);
+    }
+
+    const file = await FileModel.findOne({ 
+        _id: new Types.ObjectId(cleanFileId),
+        isDeleted: {$ne: true}
+    }).lean();
+
+    if (!file) {
+        console.error("❌ [DEBUG] File record missing in DB but Share link exists (Zombie Link)");
+        throw new AppError("File không tồn tại hoặc đã bị xóa", 404);
+    }
+
+    const currentVer = file.versions?.find(v => v.version === file.currentVersion) 
+                    || file.versions?.[file.versions.length - 1];
+
+    let signedUrl = "";
+    
+    if (currentVer && currentVer.storageKey) {
+       try {
+         const command = new GetObjectCommand({
+           Bucket: env.R2_BUCKET_NAME,
+           Key: currentVer.storageKey,
+         });
+         
+         signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+         console.log("✅ [DEBUG SERVICE] Signed URL Created Success");
+       } catch (err) {
+         console.error("❌ [DEBUG SERVICE] Signed URL Failed:", err);
+         signedUrl = currentVer.location || ""; 
+       }
+    } else {
+        console.warn("⚠️ [DEBUG SERVICE] No Storage Key found, using raw location");
+        signedUrl = currentVer?.location || "";
+    }
+
     return {
-        ...file,
-        _id: file._id.toString(),
-        fileUrl: signedUrl, // FE sẽ dùng cái này
-        previewSrc: signedUrl,
-        permission: share.accessLevel
+      _id: file._id.toString(),
+      name: file.name,
+      projectId: file.projectId.toString(),
+
+      // 🔑 Signed URL 
+      fileUrl: signedUrl,
+      previewSrc: signedUrl,
+
+      currentVersion: file.currentVersion,
+
+      versions: (file.versions || []).map(v => ({
+        version: v.version,
+        size: v.size,
+        mimeType: v.mimeType,
+
+        location: signedUrl,
+      })),
+
+      mimeType: currentVer?.mimeType || "application/octet-stream",
+      size: currentVer?.size || 0,
+
+      permission: share.accessLevel,
     };
   }
   
