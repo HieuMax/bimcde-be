@@ -16,6 +16,11 @@ export interface IModelTransform {
   scale: number;
 }
 
+export interface IClippingPlane {
+  normal: number[]; // [x, y, z]
+  constant: number;
+}
+
 export interface ITodo extends Document {
   title: string;
   description?: string;
@@ -59,6 +64,7 @@ export interface ITodo extends Document {
     thumbnail?: string; // Base64 string
     modelOpacity?: number;
     modelTransforms?: IModelTransform[];
+    clippingPlanes?: IClippingPlane[];
   };
   attachments?: IAttachment[];
   createdAt: Date;
