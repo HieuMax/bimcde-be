@@ -15,7 +15,7 @@ export interface IView extends Document {
         expressId: string[];
     }[];
 
-    // 3D State
+    // 3D State 
     viewState?: {
         camera: {
             position: number[];
@@ -32,8 +32,24 @@ export interface IView extends Document {
         }[];
         thumbnail?: string; // Base64 string
         modelOpacity?: number;
-    };
+        
+        clipping?: {
+            enabled: boolean;
+            mode: 'plane' | 'vertical' | 'box' | 'none';
+            planes: {
+                normal: { x: number, y: number, z: number };
+                constant: number;
+            }[];
+        };
 
+        measurements?: {
+            start: { x: number, y: number, z: number };
+            end: { x: number, y: number, z: number };
+            distance: number;
+        }[];
+
+    };
+    
     createdAt: Date;
     updatedAt: Date;
 }
