@@ -11,6 +11,8 @@ import { PermissionsController } from "../modules/permission/controllers/permiss
 import { UnitController } from "../modules/unit/controllers/unit.controller";
 import TopicsController from "../modules/topic/controllers/topics.controller";
 import { TeamController } from "../modules/team/controllers/team.controllers";
+import { TodoController } from "../modules/todo/todo/controllers/todo.controllers";
+import TodoCommentController from "../modules/todo/comment/controllers/comment.controller";
 
 const apiRouter = express.Router();
 
@@ -33,5 +35,7 @@ apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
 apiRouter.use("/team", TeamController);
+apiRouter.use("/todo", TodoController);
+apiRouter.use("/todo/comment", TodoCommentController);
 
 export { apiRouter };
