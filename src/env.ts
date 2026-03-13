@@ -49,4 +49,8 @@ export const env = {
   R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
   R2_BUCKET_NAME: process.env.R2_BUCKET_NAME,
   R2_PUBLIC_DOMAIN: process.env.R2_PUBLIC_DOMAIN || '',
+
+  // Gemini API
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+  GROQ_API_KEY: process.env.GROQ_API_KEY || "",
 };
