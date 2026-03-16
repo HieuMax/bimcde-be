@@ -50,7 +50,7 @@ ProjectController.get(
     try {
       const result = await projectService.getProjectById(
         req.userId,
-        req.params.projectId
+        req.params.projectId,
       );
       res.status(200).json({
         success: true,
@@ -64,7 +64,7 @@ ProjectController.get(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.put(
@@ -75,7 +75,7 @@ ProjectController.put(
       const result = await projectService.updateProject(
         req.params.projectId,
         req.userId,
-        req.body
+        req.body,
       );
       res.status(200).json({
         success: true,
@@ -89,7 +89,7 @@ ProjectController.put(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.put(
@@ -100,7 +100,7 @@ ProjectController.put(
       const result = await projectService.updateProject(
         req.params.projectId,
         req.userId,
-        req.body
+        req.body,
       );
       res.status(200).json({
         success: true,
@@ -114,7 +114,7 @@ ProjectController.put(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.put(
@@ -124,7 +124,7 @@ ProjectController.put(
     try {
       const result = await projectService.leaveProject(
         req.userId,
-        req.params.projectId
+        req.params.projectId,
       );
 
       res.status(200).json({
@@ -139,7 +139,7 @@ ProjectController.put(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.delete(
@@ -149,7 +149,7 @@ ProjectController.delete(
     try {
       const result = await projectService.deleteProject(
         req.userId,
-        req.params.projectId
+        req.params.projectId,
       );
 
       res.status(200).json({
@@ -164,7 +164,7 @@ ProjectController.delete(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.post(
@@ -175,7 +175,7 @@ ProjectController.post(
       const result = await projectService.inviteToProject(
         req.userId,
         req.params.projectId,
-        req.body
+        req.body,
       );
 
       res.status(201).json({
@@ -190,7 +190,7 @@ ProjectController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.post(
@@ -201,7 +201,7 @@ ProjectController.post(
       const result = await projectService.updateProjectMember(
         req.userId,
         req.params.projectId,
-        req.body
+        req.body,
       );
       res.status(200).json({
         success: true,
@@ -215,7 +215,7 @@ ProjectController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 ProjectController.post(
@@ -230,7 +230,7 @@ ProjectController.post(
       const result = await projectService.removeFromProject(
         req.userId,
         projectId,
-        userRemove
+        userRemove,
       );
 
       res.status(200).json({
@@ -245,7 +245,26 @@ ProjectController.post(
         error: error.message,
       });
     }
-  }
+  },
 );
+ProjectController.get("/:projectId/members", authenticate, async (req, res) => {
+  try {
+    const result = await projectService.getProjectMembers(
+      req.params.projectId,
+      req.userId,
+    );
+    res.status(200).json({
+      success: true,
+      message: "Lấy danh sách thành viên thành công.",
+      result,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Lỗi lấy thành viên.",
+      error: error.message,
+    });
+  }
+});
 
 export { ProjectController };

@@ -4,6 +4,7 @@ import { s3Client } from "../../../lib/r2.lib";
 import { env } from "../../../env";
 import FileModel from "../../file/schemas/file.schema";
 import FolderModel from "../../folder/schemas/folder.schema";
+import ViewModel from "../../view/schemas/view.schema";
 
 // Cron job (Keep unchanged, call the cleanup function at 24h)
 export const startCleanupJob = () => {
@@ -22,6 +23,7 @@ export const cleanUpSoftDeletedItems = async (retentionHours: number = 24) => {
     deletedFilesCount: 0,
     deletedFoldersCount: 0,
     deletedR2Objects: 0,
+    deletedViewsCount: 0,
   };
 
   try {
@@ -67,6 +69,12 @@ export const cleanUpSoftDeletedItems = async (retentionHours: number = 24) => {
         }
       }
       const fileIds = filesToDelete.map((f) => f._id);
+
+      const deleteViewResult = await ViewModel.deleteMany({
+        relatedFileId: { $in: fileIds },
+      });
+      result.deletedViewsCount = deleteViewResult.deletedCount;
+
       await FileModel.deleteMany({ _id: { $in: fileIds } });
 
       result.deletedFilesCount = fileIds.length;

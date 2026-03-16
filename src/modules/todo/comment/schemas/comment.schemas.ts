@@ -36,8 +36,17 @@ const commentTodoSchemas = new Schema<ICommentTodo>({
   modifiedOn: {
     type: Date,
   },
-  hasAttachments: {
-    type: Boolean,
+  attachments: {
+    type: [
+      {
+        name: String,
+        url: String,
+        mimeType: String,
+        size: Number,
+        fileId: String,
+      },
+    ],
+    default: [],
   },
 });
 
