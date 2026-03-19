@@ -20,6 +20,8 @@ import View2DController from "../modules/view2d/controllers/view2d.controller";
 import Todo2DController from "../modules/todo2d/controllers/todo2d.controller";
 import ShareRouter from "../modules/file/routes/share.route"
 import { AIController } from "../modules/chatbot/controllers/chatbot.controller";
+import Topic3DController from "../modules/topic3d/controllers/topic3d.controller";
+
 const apiRouter = express.Router();
 
 apiRouter.use("/accounts", AccountController);
@@ -36,6 +38,8 @@ apiRouter.use("/topics", TopicsController);
 apiRouter.use("/views2d", View2DController);
 apiRouter.use("/todos2d", Todo2DController);
 apiRouter.use("/todos3d", Todo3dController);
+apiRouter.use("/topics", TopicsController);
+apiRouter.use("/topic3d", Topic3DController);
 apiRouter.use("/views3d", ViewController3d);
 apiRouter.use("/team", TeamController);
 apiRouter.use("/views", ViewController);

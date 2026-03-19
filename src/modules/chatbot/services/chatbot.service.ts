@@ -9,13 +9,12 @@ interface MessagePayload {
 
 export class AIService {
   async chat(history: MessagePayload[]) {
-    // Tạo mảng messages chuẩn bị gửi cho Groq
+    // Tạo mảng messages 
     const messages = [
       {
         role: "system",
         content: SYSTEM_PROMPT,
       },
-      // Map toàn bộ lịch sử chat từ frontend gửi lên
       ...history.map((msg) => ({
         role: msg.role,
         content: msg.content,

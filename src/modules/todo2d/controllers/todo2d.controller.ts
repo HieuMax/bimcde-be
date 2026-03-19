@@ -72,4 +72,40 @@ Todo2DController.delete(
   })
 );
 
+Todo2DController.put(
+  "/:id",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const userId = (req as any).userId;
+
+    if (!userId) {
+      throw new AppError("Unauthorized: User ID not found", 401);
+    }
+
+    // Tìm user để lấy tên người cập nhật
+    const user = await AccountModel.findById(userId);
+    if (!user) {
+      throw new AppError("User not found", 404);
+    }
+
+    const updatedBy = user.fullName || user.email || "Unknown";
+
+    // Gộp dữ liệu update từ body và thêm updatedBy
+    const updateData = {
+      ...req.body,
+      updatedBy,
+    };
+
+    // Gọi hàm update trong service của Backend
+    const updatedTodo = await todo2DService.updateTodo(id, updateData);
+
+    if (!updatedTodo) {
+      throw new AppError("Todo not found", 404);
+    }
+
+    res.status(200).json(updatedTodo);
+  })
+);
+
 export default Todo2DController;

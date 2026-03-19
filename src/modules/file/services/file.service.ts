@@ -134,123 +134,123 @@ export default class FileService {
       to: emails.join(", "),
       subject: `${senderName} shared "${fileName}" with you`,
       html: `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BIM CDE Share</title>
-  <style>
-    /* Reset CSS cơ bản cho Email */
-    body { margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-    table { border-collapse: collapse; }
-    .btn-hover:hover { opacity: 0.9; }
-  </style>
-</head>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>BIM CDE Share</title>
+        <style>
+          /* Reset CSS cơ bản cho Email */
+          body { margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+          table { border-collapse: collapse; }
+          .btn-hover:hover { opacity: 0.9; }
+        </style>
+      </head>
 
-<body style="margin:0; padding:0; background-color:#f3f4f6; color:#1f2937;">
-  
-  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f3f4f6; padding: 40px 0;">
-    <tr>
-      <td align="center">
+      <body style="margin:0; padding:0; background-color:#f3f4f6; color:#1f2937;">
         
-        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px; background-color:#ffffff; border-radius:12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); overflow:hidden;">
-          
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f3f4f6; padding: 40px 0;">
           <tr>
-            <td style="padding: 32px 40px; background-color: #ffffff; border-bottom: 1px solid #f0f0f0;">
-              <h1 style="margin:0; font-size:22px; font-weight:700; color:#2563eb; letter-spacing: -0.5px;">
-                BIM CDE
-              </h1>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 40px;">
+            <td align="center">
               
-              <p style="margin:0 0 24px 0; font-size:16px; line-height:24px; color:#374151;">
-                Hi there,
-              </p>
-              <p style="margin:0 0 32px 0; font-size:16px; line-height:24px; color:#374151;">
-                <strong>${senderName}</strong> has shared a file with you from the project <strong>${projectName}</strong>.
-              </p>
-
-              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border: 1px solid #e5e7eb; border-radius: 8px; background-color: #fafafa;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px; background-color:#ffffff; border-radius:12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); overflow:hidden;">
+                
                 <tr>
-                  <td style="padding: 20px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                  <td style="padding: 32px 40px; background-color: #ffffff; border-bottom: 1px solid #f0f0f0;">
+                    <h1 style="margin:0; font-size:22px; font-weight:700; color:#2563eb; letter-spacing: -0.5px;">
+                      BIM CDE
+                    </h1>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding: 40px;">
+                    
+                    <p style="margin:0 0 24px 0; font-size:16px; line-height:24px; color:#374151;">
+                      Hi there,
+                    </p>
+                    <p style="margin:0 0 32px 0; font-size:16px; line-height:24px; color:#374151;">
+                      <strong>${senderName}</strong> has shared a file with you from the project <strong>${projectName}</strong>.
+                    </p>
+
+                    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border: 1px solid #e5e7eb; border-radius: 8px; background-color: #fafafa;">
                       <tr>
-                        <td width="60" valign="top" style="padding-right: 20px;">
-                           <div style="width: 48px; height: 60px; background-color: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 6px; position: relative;">
-                              <div style="position: absolute; top: 18px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
-                              <div style="position: absolute; top: 26px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
-                              <div style="position: absolute; top: 34px; left: 8px; width: 20px; height: 2px; background-color: #a5b4fc;"></div>
-                              <div style="position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 16px 16px 0; border-color: transparent #ffffff transparent transparent;"></div>
-                           </div>
+                        <td style="padding: 20px;">
+                          <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                            <tr>
+                              <td width="60" valign="top" style="padding-right: 20px;">
+                                <div style="width: 48px; height: 60px; background-color: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 6px; position: relative;">
+                                    <div style="position: absolute; top: 18px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
+                                    <div style="position: absolute; top: 26px; left: 8px; right: 8px; height: 2px; background-color: #a5b4fc;"></div>
+                                    <div style="position: absolute; top: 34px; left: 8px; width: 20px; height: 2px; background-color: #a5b4fc;"></div>
+                                    <div style="position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 16px 16px 0; border-color: transparent #ffffff transparent transparent;"></div>
+                                </div>
+                              </td>
+                              
+                              <td valign="middle">
+                                <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #111827;">
+                                  ${fileName}
+                                </p>
+                                <p style="margin: 0; font-size: 13px; color: #6b7280;">
+                                  Shared by ${senderName} • ${new Date().toLocaleDateString("en-GB")}
+                                </p>
+                                ${note ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #4b5563; font-style: italic; background: #f3f4f6; padding: 6px 10px; border-radius: 4px;">"${note}"</p>` : ""}
+                              </td>
+                            </tr>
+                          </table>
                         </td>
-                        
-                        <td valign="middle">
-                          <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #111827;">
-                            ${fileName}
-                          </p>
-                          <p style="margin: 0; font-size: 13px; color: #6b7280;">
-                             Shared by ${senderName} • ${new Date().toLocaleDateString("en-GB")}
-                          </p>
-                          ${note ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #4b5563; font-style: italic; background: #f3f4f6; padding: 6px 10px; border-radius: 4px;">"${note}"</p>` : ""}
+                      </tr>
+                      
+                      <tr>
+                        <td style="padding: 0 20px 20px 20px;">
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                              <tr>
+                                <td width="50%" style="padding-right: 8px;">
+                                    <a href="${link}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #2563eb;">
+                                      Open in Viewer
+                                    </a>
+                                </td>
+
+                                ${showDownloadButton ? `
+                                <td width="50%" style="padding-left: 8px;">
+                                    <a href="${downloadLink}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #ffffff; color: #374151; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #d1d5db;">
+                                      Download File
+                                    </a>
+                                </td>
+                                ` : `
+                                <td width="50%"></td>
+                                `}
+                              </tr>
+                          </table>
                         </td>
                       </tr>
                     </table>
+
+                    <p style="margin: 32px 0 0 0; font-size: 13px; color: #9ca3af; text-align: center;">
+                      You received this email because a file was shared with you via BIM CDE.
+                      <br>If the button doesn't work, verify that the link has not expired.
+                    </p>
+
                   </td>
-                </tr>
+                </tr> 
                 
                 <tr>
-                  <td style="padding: 0 20px 20px 20px;">
-                     <table width="100%" cellpadding="0" cellspacing="0">
-                        <tr>
-                           <td width="50%" style="padding-right: 8px;">
-                              <a href="${link}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #2563eb;">
-                                 Open in Viewer
-                              </a>
-                           </td>
-
-                           ${showDownloadButton ? `
-                           <td width="50%" style="padding-left: 8px;">
-                              <a href="${downloadLink}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #ffffff; color: #374151; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; border: 1px solid #d1d5db;">
-                                 Download File
-                              </a>
-                           </td>
-                           ` : `
-                           <td width="50%"></td>
-                           `}
-                        </tr>
-                     </table>
+                  <td style="background-color: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #f0f0f0;">
+                    <p style="margin: 0; font-size: 12px; color: #9ca3af;">
+                      © ${new Date().getFullYear()} BIM CDE Platform. All rights reserved.
+                    </p>
                   </td>
                 </tr>
+
               </table>
 
-              <p style="margin: 32px 0 0 0; font-size: 13px; color: #9ca3af; text-align: center;">
-                You received this email because a file was shared with you via BIM CDE.
-                <br>If the button doesn't work, verify that the link has not expired.
-              </p>
-
             </td>
           </tr>
-          
-          <tr>
-            <td style="background-color: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #f0f0f0;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                © ${new Date().getFullYear()} BIM CDE Platform. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
         </table>
 
-      </td>
-    </tr>
-  </table>
-
-</body>
-</html>
+      </body>
+      </html>
       `,
     };
 

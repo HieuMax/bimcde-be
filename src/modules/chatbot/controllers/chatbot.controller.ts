@@ -5,9 +5,6 @@ import { AIService } from "../services/chatbot.service";
 const ChatbotController = express.Router();
 const aiService = new AIService();
 
-/**
- * POST /api/assistant/chatbot
- */
 ChatbotController.post(
   "/chatbot",
   asyncHandler(async (req: Request, res: Response) => {
@@ -20,7 +17,6 @@ ChatbotController.post(
 
     console.log("Chat request history length:", history.length);
 
-    // Truyền toàn bộ lịch sử (bao gồm cả tin nhắn mới nhất của user) vào service
     const reply = await aiService.chat(history);
 
     res.status(200).json({
