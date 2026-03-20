@@ -1,4 +1,5 @@
 import mongoose, { Document } from "mongoose";
+import { IClippingPlane, IModelTransform } from "../../todo3d/interfaces/todo.interface";
 
 export interface IView extends Document {
     title: string;
@@ -41,6 +42,9 @@ export interface IView extends Document {
                 constant: number;
             }[];
         };
+        modelTransforms?: IModelTransform[];
+        clippingPlanes?: IClippingPlane[];
+    };
 
         measurements?: {
             start: { x: number, y: number, z: number };
@@ -48,8 +52,8 @@ export interface IView extends Document {
             distance: number;
         }[];
 
-    };
-    
     createdAt: Date;
     updatedAt: Date;
-}
+
+    };
+    
