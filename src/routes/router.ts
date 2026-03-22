@@ -21,7 +21,10 @@ import Todo2DController from "../modules/todo2d/controllers/todo2d.controller";
 import ShareRouter from "../modules/file/routes/share.route"
 import { AIController } from "../modules/chatbot/controllers/chatbot.controller";
 import Topic3DController from "../modules/topic3d/controllers/topic3d.controller";
+import { TodoController } from "../modules/todo/todo/controllers/todo.controllers";
+import TodoCommentController from "../modules/todo/comment/controllers/comment.controller";
 import ClashController from "../modules/clashSet/controllers/clash.controller";
+import { attachtmentTodoController } from "../modules/todo/attachment/controllers/attachment.controller";
 
 const apiRouter = express.Router();
 
@@ -48,5 +51,8 @@ apiRouter.use("/releases", ReleaseController);
 apiRouter.use("/share", ShareRouter);
 apiRouter.use("/assistant", AIController);
 apiRouter.use("/clash-sets", ClashController);
+apiRouter.use("/todo", TodoController);
+apiRouter.use("/todo/comment", TodoCommentController);
+apiRouter.use("/todo/attachment", attachtmentTodoController);
 
 export { apiRouter };

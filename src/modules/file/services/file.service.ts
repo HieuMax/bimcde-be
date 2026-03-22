@@ -382,6 +382,50 @@ export default class FileService {
     return await FileModel.find();
   }
 
+  /**
+   * Get total storage used by project (sum of file sizes in bytes).
+   * Used for dashboard storage bar.
+   */
+  async getProjectStorageUsed(projectId: string): Promise<number> {
+    const projectObjId = new Types.ObjectId(projectId);
+    const result = await FileModel.aggregate([
+      { $match: { projectId: projectObjId, isDeleted: false } },
+      {
+        $project: {
+          lastSize: { $ifNull: [{ $arrayElemAt: ["$versions.size", -1] }, 0] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$lastSize" } } },
+    ]);
+    return result[0]?.total ?? 0;
+  }
+
+  /**
+   * Get file type statistics for a project (count by extension).
+   * Used for dashboard pie chart.
+   */
+  async getFileTypeStats(projectId: string): Promise<{ extension: string; count: number }[]> {
+    const projectObjId = new Types.ObjectId(projectId);
+    const result = await FileModel.aggregate([
+      { $match: { projectId: projectObjId, isDeleted: false } },
+      {
+        $project: {
+          ext: {
+            $cond: {
+              if: { $gt: [{ $size: { $split: ["$name", "."] } }, 1] },
+              then: { $toLower: { $arrayElemAt: [{ $split: ["$name", "."] }, -1] } },
+              else: "other",
+            },
+          },
+        },
+      },
+      { $group: { _id: "$ext", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $project: { extension: "$_id", count: 1, _id: 0 } },
+    ]);
+    return result;
+  }
+
   // RENAME FILE
   async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });

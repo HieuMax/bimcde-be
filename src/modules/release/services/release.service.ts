@@ -49,6 +49,7 @@ export default class ReleaseService {
         // Lấy thông tin người sửa từ version hoặc fallback
         const modifierName =
           (verExists.uploadedBy as any)?.fullName || "Unknown";
+        const modifierId = (verExists.uploadedBy as any)?._id;
 
         processedItems.push({
           fileId: file._id,
@@ -58,6 +59,7 @@ export default class ReleaseService {
           mimeType: verExists.mimeType,
           location: verExists.location,
           modifiedBy: modifierName, // Snapshot người sửa
+          modifiedById: modifierId,
           updatedAt: verExists.createdAt, // Snapshot ngày sửa
           tags: (file.tags as any[])?.map((t) => ({
             name: t.name,
@@ -330,6 +332,42 @@ export default class ReleaseService {
     return await release.save();
   }
 
+  // New Method: Bulk remove items from release
+  async removeItemsFromRelease(
+    releaseId: string,
+    fileIds: string[],
+    currentUser: any,
+  ) {
+    const release = await ReleaseModel.findById(releaseId);
+    if (!release) throw new AppError("Release not found", 404);
+
+    if (
+      currentUser.role !== "admin" &&
+      release.createdBy.toString() !== currentUser._id.toString()
+    ) {
+      throw new AppError(
+        "Permission denied. Only the creator or admin can modify this release.",
+        403,
+      );
+    }
+
+    if (release.status === "SENT") {
+      throw new AppError("Cannot modify a SENT release", 400);
+    }
+
+    const initialLength = release.items.length;
+    // Filter out items that match any of the provided fileIds
+    release.items = release.items.filter(
+      (item) => !fileIds.includes(item.fileId.toString()),
+    );
+
+    if (release.items.length === initialLength) {
+      throw new AppError("No items were removed (files not found in release)", 404);
+    }
+
+    return await release.save();
+  }
+
   // 5. Gửi Release (Chuyển trạng thái sang SENT)
   async sendRelease(id: string, currentUser: any) {
     // 1. Lấy Release
@@ -486,6 +524,7 @@ export default class ReleaseService {
 
         const modifierName =
           (verExists.uploadedBy as any)?.fullName || "Unknown";
+        const modifierId = (verExists.uploadedBy as any)?._id;
 
         processedItems.push({
           fileId: file._id,
@@ -495,6 +534,7 @@ export default class ReleaseService {
           mimeType: verExists.mimeType,
           location: verExists.location,
           modifiedBy: modifierName,
+          modifiedById: modifierId,
           updatedAt: verExists.createdAt,
           tags: (file.tags as any[])?.map((t) => ({
             name: t.name,

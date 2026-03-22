@@ -55,6 +55,8 @@ export default class ActivityService {
       endDate?: string;
       page?: number;
       limit?: number;
+      /** When true, skip restoreStatus checks (faster for recent activity widget) */
+      lightweight?: boolean;
     },
   ) {
     const projectObjId = new Types.ObjectId(projectId);
@@ -130,7 +132,19 @@ export default class ActivityService {
       ActivityModel.countDocuments(query),
     ]);
 
-    // [NEW] 4. Post-process: Kiểm tra trạng thái Restorable cho các item bị xóa
+    // 4. Post-process: Kiểm tra trạng thái Restorable (bỏ qua khi lightweight=true)
+    if (filters.lightweight) {
+      return {
+        data: activities.map((act: any) => ({ ...act, restoreStatus: "NONE" })),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    }
+
     const processedActivities = await Promise.all(
       activities.map(async (act: any) => {
         // Mặc định status là NONE

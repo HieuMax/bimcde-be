@@ -8,6 +8,7 @@ export interface IReleaseItem {
   mimeType?: string;
   location?: string;
   modifiedBy?: string;
+  modifiedById?: Types.ObjectId;
   updatedAt?: Date;
   tags?: { name: string; color: string }[];
 }

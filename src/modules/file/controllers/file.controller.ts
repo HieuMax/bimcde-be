@@ -352,6 +352,36 @@ FileController.post(
 );
 
 /**
+ * GET /api/files/stats/storage?projectId=...
+ * Desc: Get total storage used (bytes) for dashboard storage bar.
+ */
+FileController.get(
+  "/stats/storage",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.query;
+    if (!projectId) throw new AppError("projectId is required", 400);
+    const totalBytes = await fileService.getProjectStorageUsed(projectId as string);
+    res.json({ totalBytes });
+  }),
+);
+
+/**
+ * GET /api/files/stats/file-types?projectId=...
+ * Desc: Get file type distribution (by extension) for dashboard pie chart.
+ */
+FileController.get(
+  "/stats/file-types",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.query;
+    if (!projectId) throw new AppError("projectId is required", 400);
+    const stats = await fileService.getFileTypeStats(projectId as string);
+    res.json(stats);
+  }),
+);
+
+/**
  * GET /api/files/:id
  * Desc: Get details of a specific file.
  * NOTE: MUST be AFTER /:id/detail
