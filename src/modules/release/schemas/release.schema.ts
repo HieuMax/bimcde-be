@@ -10,6 +10,7 @@ const ReleaseItemSchema = new Schema(
     mimeType: { type: String },
     location: { type: String },
     modifiedBy: { type: String, default: "Unknown" },
+    modifiedById: { type: Schema.Types.ObjectId, ref: "Account" },
     updatedAt: { type: Date, default: Date.now },
     tags: [
       {

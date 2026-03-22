@@ -4,6 +4,8 @@ import {
   TopicStatus,
   TopicPriority,
 } from "../schemas/topics.schema";
+import TopicItemModel from "../schemas/topic-item.schema";
+import { ITopicItem } from "../interfaces/topic-item.interface";
 import { ITopicData } from "../interfaces/topics.interface";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
 
@@ -12,7 +14,7 @@ export default class TopicsService {
   async updateTopic(
     userId: Types.ObjectId | undefined,
     projectId: string,
-    updateData: ITopicData
+    updateData: ITopicData,
   ) {
     try {
       // Kiểm tra người dùng có phải là thành viên của dự án không
@@ -34,15 +36,15 @@ export default class TopicsService {
       await Promise.all([
         // Xử lý TopicType
         TopicType.deleteMany({ projectId }).then(() =>
-          TopicType.insertMany(addProjectId(topicTypes))
+          TopicType.insertMany(addProjectId(topicTypes)),
         ),
         // Xử lý Status
         TopicStatus.deleteMany({ projectId }).then(() =>
-          TopicStatus.insertMany(addProjectId(topicStatuses))
+          TopicStatus.insertMany(addProjectId(topicStatuses)),
         ),
         // Xử lý Priority
         TopicPriority.deleteMany({ projectId }).then(() =>
-          TopicPriority.insertMany(addProjectId(topicPriorities))
+          TopicPriority.insertMany(addProjectId(topicPriorities)),
         ),
       ]);
 
@@ -244,6 +246,309 @@ export default class TopicsService {
     } catch (error: any) {
       console.error(error);
       throw new Error(`Error creating default topics: ${error.message}`);
+    }
+  }
+
+  // ================================
+  // TOPIC ITEMS (BCF Topics instances)
+  // ================================
+
+  async createTopicItem(
+    userId: Types.ObjectId | undefined,
+    projectId: string,
+    payload: {
+      title: string;
+      description?: string;
+      assignee?: string;
+      type?: string;
+      status?: string;
+      priority?: string;
+      tags?: string[];
+      dueDate?: Date;
+      authorName?: string;
+    },
+  ) {
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId,
+    });
+    if (!member) {
+      throw new Error("Bạn không có quyền truy cập vào dự án này.");
+    }
+
+    const count = await TopicItemModel.countDocuments({ projectId });
+    const code = `THEBU-${count + 1}`;
+    const now = new Date();
+
+    const doc = await TopicItemModel.create({
+      projectId: new Types.ObjectId(projectId),
+      code,
+      title: payload.title?.trim() || "Untitled",
+      description: payload.description ?? "",
+      assignee: payload.assignee ?? "",
+      type: payload.type ?? "Undefined",
+      status: payload.status ?? "New",
+      priority: payload.priority ?? "Normal",
+      tags: Array.isArray(payload.tags) ? payload.tags : [],
+      dueDate: payload.dueDate ?? null,
+      authorName: payload.authorName ?? "Unknown",
+      thumbnailUrl: "",
+      stats: { comments: 0, viewpoints: 0, attachments: 0 },
+      attachments: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return doc.toObject();
+  }
+
+  async updateTopicItem(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+    payload: {
+      title?: string;
+      description?: string;
+      assignee?: string;
+      type?: string;
+      status?: string;
+      priority?: string;
+      tags?: string[];
+      dueDate?: Date | null;
+    },
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new Error("Topic item not found");
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) {
+      throw new Error("Bạn không có quyền truy cập vào dự án này.");
+    }
+
+    if (payload.title !== undefined)
+      topicItem.title = payload.title.trim() || topicItem.title;
+    if (payload.description !== undefined)
+      topicItem.description = payload.description ?? topicItem.description;
+    if (payload.assignee !== undefined)
+      topicItem.assignee = payload.assignee ?? "";
+    if (payload.type !== undefined)
+      topicItem.type = payload.type as ITopicItem["type"];
+    if (payload.status !== undefined)
+      topicItem.status = payload.status as ITopicItem["status"];
+    if (payload.priority !== undefined)
+      topicItem.priority = payload.priority as ITopicItem["priority"];
+    if (payload.tags !== undefined)
+      topicItem.tags = Array.isArray(payload.tags) ? payload.tags : topicItem.tags;
+    if (payload.dueDate !== undefined)
+      topicItem.dueDate =
+        payload.dueDate === null || payload.dueDate === undefined
+          ? undefined
+          : payload.dueDate;
+
+    await topicItem.save();
+
+    return topicItem.toObject();
+  }
+
+  async getAllTopicItems(
+    userId: Types.ObjectId | undefined,
+    projectId: string,
+  ) {
+    try {
+      const member = await projectMemberSchema.findOne({
+        userId,
+        projectId,
+      });
+
+      if (!member) {
+        throw new Error("Bạn không có quyền truy cập vào dự án này.");
+      }
+
+      let topics = await TopicItemModel.find({ projectId })
+        .sort({ updatedAt: -1 })
+        .lean();
+
+      if (!topics || topics.length === 0) {
+        // Ensure FE always has something to render
+        await this.createTopicItemsDefault(new Types.ObjectId(projectId));
+        topics = await TopicItemModel.find({ projectId })
+          .sort({ updatedAt: -1 })
+          .lean();
+      }
+
+      return topics;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async addTopicAttachments(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+    attachments: any[],
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new Error("Topic item not found");
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) throw new Error("Bạn không có quyền truy cập vào dự án này.");
+
+    const safeAttachments = Array.isArray(attachments) ? attachments : [];
+
+    const normalized = safeAttachments
+      .map((a) => ({
+        name: String(a?.name ?? ""),
+        url: String(a?.url ?? ""),
+        mimeType: a?.mimeType ? String(a.mimeType) : undefined,
+        size: typeof a?.size === "number" ? a.size : undefined,
+        fileId: a?.fileId ? String(a.fileId) : undefined,
+      }))
+      .filter((a) => a.name && a.url);
+
+    topicItem.attachments = [...(topicItem.attachments ?? []), ...normalized];
+    topicItem.stats = topicItem.stats ?? { comments: 0, viewpoints: 0, attachments: 0 };
+    topicItem.stats.attachments = topicItem.attachments.length;
+    await topicItem.save();
+
+    return topicItem;
+  }
+
+  async removeTopicAttachment(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+    url: string,
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new Error("Topic item not found");
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) throw new Error("Bạn không có quyền truy cập vào dự án này.");
+
+    const next = (topicItem.attachments ?? []).filter((a: any) => a.url !== url);
+    topicItem.attachments = next;
+    topicItem.stats = topicItem.stats ?? { comments: 0, viewpoints: 0, attachments: 0 };
+    topicItem.stats.attachments = topicItem.attachments.length;
+    await topicItem.save();
+
+    return topicItem;
+  }
+
+  async removeAllTopicAttachments(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new Error("Topic item not found");
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) throw new Error("Bạn không có quyền truy cập vào dự án này.");
+
+    topicItem.attachments = [];
+    topicItem.stats = topicItem.stats ?? { comments: 0, viewpoints: 0, attachments: 0 };
+    topicItem.stats.attachments = 0;
+    await topicItem.save();
+
+    return topicItem;
+  }
+
+  // Create some default topic items so FE has data to render
+  async createTopicItemsDefault(projectId: Types.ObjectId) {
+    try {
+      const exists = await TopicItemModel.findOne({ projectId }).lean();
+      if (exists) return { message: "Default topic items already exist." };
+
+      const now = new Date();
+
+      const defaultItems = [
+        {
+          code: "THEBU-5",
+          title: "new",
+          description: "new",
+          assignee: "",
+          type: "Issue",
+          status: "New",
+          priority: "Low",
+          tags: ["Issue"],
+          dueDate: null,
+          authorName: "Hao Nguyen",
+          thumbnailUrl: "",
+          attachments: [],
+          stats: { comments: 0, viewpoints: 3, attachments: 0 },
+          projectId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          code: "THEBU-4",
+          title: "test Topic1",
+          description: "",
+          assignee: "",
+          type: "Issue",
+          status: "New",
+          priority: "Normal",
+          tags: ["Issue"],
+          dueDate: null,
+          authorName: "Tran Hoang Phuc",
+          thumbnailUrl: "",
+          attachments: [],
+          stats: { comments: 0, viewpoints: 0, attachments: 0 },
+          projectId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          code: "THEBU-3",
+          title: "example",
+          description: "",
+          assignee: "",
+          type: "Comment",
+          status: "In Progress",
+          priority: "Normal",
+          tags: [],
+          dueDate: null,
+          authorName: "Hao Nguyen",
+          thumbnailUrl: "",
+          attachments: [],
+          stats: { comments: 0, viewpoints: 0, attachments: 0 },
+          projectId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          code: "THEBU-2",
+          title: "aaaa",
+          description: "",
+          assignee: "",
+          type: "Undefined",
+          status: "Done",
+          priority: "Normal",
+          tags: [],
+          dueDate: null,
+          authorName: "Tran Hoang Phuc",
+          thumbnailUrl: "",
+          attachments: [],
+          stats: { comments: 0, viewpoints: 0, attachments: 0 },
+          projectId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+
+      await TopicItemModel.insertMany(defaultItems);
+      return { message: "Default topic items created successfully." };
+    } catch (error: any) {
+      throw new Error(`Error creating default topic items: ${error.message}`);
     }
   }
 }

@@ -7,7 +7,7 @@ const CommentSchema = new Schema<IComment>(
     targetId: { type: Schema.Types.ObjectId, required: true },
     targetType: {
       type: String,
-      enum: ["file", "folder", "release", "view"],
+      enum: ["file", "folder", "release", "view", "topic"],
       required: true,
       trim: true,
     },
