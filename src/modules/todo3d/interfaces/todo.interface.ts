@@ -8,6 +8,19 @@ export interface IAttachment {
   fileId?: string; // (Optional)
 }
 
+export interface IModelTransform {
+  modelID: number;
+  fileUrl: string;
+  position: { x: number, y: number, z: number };
+  rotation: { x: number, y: number, z: number };
+  scale: number;
+}
+
+export interface IClippingPlane {
+  normal: number[]; // [x, y, z]
+  constant: number;
+}
+
 export interface ITodo extends Document {
   title: string;
   description?: string;
@@ -49,6 +62,9 @@ export interface ITodo extends Document {
       fileUrl?: string;
     }[];
     thumbnail?: string; // Base64 string
+    modelOpacity?: number;
+    modelTransforms?: IModelTransform[];
+    clippingPlanes?: IClippingPlane[];
   };
   attachments?: IAttachment[];
   createdAt: Date;

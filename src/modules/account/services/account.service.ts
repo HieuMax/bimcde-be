@@ -138,7 +138,7 @@ export default class AccountService {
   async logout(userId: Types.ObjectId | undefined) {
     try {
       await Session.deleteMany({ userId: userId });
-      return;
+      return userId;
     } catch (error) {
       throw error;
     }

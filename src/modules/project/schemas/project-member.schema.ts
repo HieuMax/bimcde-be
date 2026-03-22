@@ -1,5 +1,5 @@
 import { Types, model, Schema } from "mongoose";
-import { IProjectMember } from "../interfaces/project-member.interface";
+import { IProjectMember } from "../interfaces/project-member.interface"; 
 
 const projectMemberSchema = new Schema<IProjectMember>(
   {
