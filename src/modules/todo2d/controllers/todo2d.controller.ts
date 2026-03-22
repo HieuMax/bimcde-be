@@ -108,4 +108,13 @@ Todo2DController.put(
   })
 );
 
+// GET /api/todos/project/:projectId
+Todo2DController.get(
+  "/project/:projectId",
+  asyncHandler(async (req: Request, res: Response) => {
+    const list = await todo2DService.getTodosByProject(req.params.projectId);
+    res.status(200).json(list);
+  })
+);
+
 export default Todo2DController;

@@ -61,6 +61,29 @@ export default class View2DService {
     }
   }
 
+  // Lấy danh sách View theo Project
+  async getViewsByProject(projectId: string) {
+    if (!Types.ObjectId.isValid(projectId)) {
+      throw new AppError("Invalid Project ID", 400);
+    }
+
+    try {
+      const views = await View2DModel.find({
+        projectId: new Types.ObjectId(projectId),
+        isDeleted: false, // Giả sử bạn có field này
+      })
+        .sort({ createdAt: -1 })
+        .populate("createdBy", "fullName email")
+        .populate("updatedBy", "fullName email")
+        // Khuyên dùng: Populate thêm fileId để frontend biết view này thuộc file nào
+        .populate("fileId", "name"); 
+
+      return views;
+    } catch (error) {
+      throw new AppError("Cannot fetch views by project", 500);
+    }
+  }
+
   async deleteView(viewId: string, userId: string) {
     const view = await View2DModel.findById(viewId);
 

@@ -8,17 +8,21 @@ const Todo2DSchema = new Schema<ITodo>(
     
     status: { 
       type: String, 
-      enum: ["Open", "In Progress", "Done", "On Hold"], 
+      enum: ["Open", "In Progress", "Done", "Closed"], 
       default: "Open" 
     },
     
     priority: { 
       type: String, 
-      enum: ["Low", "Normal", "High", "Urgent"], 
+      enum: ["Low", "Normal", "High", "Critical"], 
       default: "Normal" 
     },
     
-    type: { type: String, default: "Issue" },
+    type: { 
+      type: String, 
+      enum: ["Comment", "Undefined", "Issue", "Request", "Fault", "Inquiry", "Solution", "Clash", "Remark"],
+      default: "Issue"
+    },
     dueDate: { type: Date },
     completion: { type: Number, default: 0 },
     assignee: { type: String },

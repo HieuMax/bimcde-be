@@ -7,10 +7,6 @@ import { authenticate } from "../../../middlewares/authMiddlewares"; // Middlewa
 const View2DController = express.Router();
 const view2dService = new View2DService();
 
-/**
- * POST /api/views
- * Tạo view mới
- */
 View2DController.post(
   "/",
   authenticate, // 👈 Bắt buộc phải đăng nhập
@@ -64,7 +60,7 @@ View2DController.post(
 );
 
 /**
- * GET /api/views/file/:fileId
+ * 
  * Lấy danh sách view của một file
  */
 View2DController.get(
@@ -74,6 +70,19 @@ View2DController.get(
     const { fileId } = req.params;
     
     const result = await view2dService.getViewsByFile(fileId);
+    
+    res.status(200).json(result);
+  })
+);
+
+View2DController.get(
+  "/project/:projectId",
+  // authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.params;
+    
+    // Gọi hàm từ service mà bạn đã viết sẵn
+    const result = await view2dService.getViewsByProject(projectId);
     
     res.status(200).json(result);
   })

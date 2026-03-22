@@ -13,6 +13,13 @@ export default class Todo2DService {
       .sort({ createdAt: -1 });
   }
 
+  // Lấy danh sách Todo theo Project
+  async getTodosByProject(projectId: string) {
+    return await TodoModel.find({ projectId, isDeleted: false })
+      .sort({ createdAt: -1 })
+      .populate("fileId", "name"); 
+  }
+
   // Cập nhật Todo
   async updateTodo(id: string, data: Partial<ITodo>) {
     return await TodoModel.findByIdAndUpdate(id, data, { new: true });
