@@ -14,9 +14,14 @@ ViewController3d.get(
     "/",
     authenticate,
     asyncHandler(async (req: Request, res: Response) => {
-        const { projectId } = req.query;
+        const { projectId, userIds, groupIds, startDate, endDate } = req.query;
         if (!projectId) throw new AppError("Project ID is required", 400);
-        const views = await viewService.getAllViews(projectId as string);
+        const views = await viewService.getAllViews(projectId as string, {
+            userIds: userIds as string,
+            groupIds: groupIds as string,
+            startDate: startDate as string,
+            endDate: endDate as string
+        });
         res.json(views);
     })
 );

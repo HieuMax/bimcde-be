@@ -13,7 +13,7 @@ ViewController.get(
   "/",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { projectId, type, createdBy } = req.query;
+    const { projectId, type, createdBy, userIds, groupIds, startDate, endDate } = req.query;
     const user = (req as any).user || (req as any).account; // Lấy user từ token
     console.log(user);
     if (!projectId) throw new AppError("Project ID is required", 400);
@@ -21,6 +21,10 @@ ViewController.get(
     const views = await viewService.getViews(projectId as string, user, {
       type: type as string,
       createdBy: createdBy as string,
+      userIds: userIds as string,
+      groupIds: groupIds as string,
+      startDate: startDate as string,
+      endDate: endDate as string
     });
     res.json(views);
   }),

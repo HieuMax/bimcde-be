@@ -22,7 +22,7 @@ export default class CommentService {
   async createComment(data: {
     content: string;
     targetId: string;
-    targetType: "file" | "folder" | "release" | "view";
+    targetType: "file" | "folder" | "release" | "view" | "topic";
     userId: string;
   }) {
     const newComment = new CommentModel({

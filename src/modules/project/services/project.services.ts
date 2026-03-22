@@ -66,6 +66,7 @@ export default class ProjectService {
       // Tạo default topics cho project
       const topicsService = new TopicsService();
       await topicsService.createTopicDefault(createdProject._id);
+      await topicsService.createTopicItemsDefault(createdProject._id);
 
       return createdProject;
     } catch (error) {
