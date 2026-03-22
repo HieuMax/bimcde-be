@@ -39,7 +39,6 @@ apiRouter.use("/topics", TopicsController);
 apiRouter.use("/views2d", View2DController);
 apiRouter.use("/todos2d", Todo2DController);
 apiRouter.use("/todos3d", Todo3dController);
-apiRouter.use("/topics", TopicsController);
 apiRouter.use("/topic3d", Topic3DController);
 apiRouter.use("/views3d", ViewController3d);
 apiRouter.use("/team", TeamController);
