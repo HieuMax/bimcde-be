@@ -1,3 +1,4 @@
+// bimcde-be\src\modules\folder\schemas\folder.schema.ts
 import mongoose, { Schema } from "mongoose";
 import { IFolder } from "../interfaces/folder.interface";
 

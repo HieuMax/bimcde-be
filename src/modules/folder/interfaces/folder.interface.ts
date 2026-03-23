@@ -12,7 +12,7 @@ export interface IFolder extends Document {
   name: string;
   projectId: Types.ObjectId;
   parentId: Types.ObjectId | null;
-  path: string;
+  path: string | null;
   createdBy: Types.ObjectId;
   currentVersion: number;
   versions: IFolderVersion[];

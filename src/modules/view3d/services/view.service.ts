@@ -68,15 +68,39 @@ export default class ViewService {
     }
 
     // --- UPDATE SNAPSHOT (3D State only) ---
-    async updateSnapshot(id: string, snapshotData: { viewState: any, items: any[] }, userId: string): Promise<IView> {
+    // async updateSnapshot(id: string, snapshotData: { viewState: any, items: any[] }, userId: string): Promise<IView> {
+    //     const view = await ViewModel.findById(id);
+    //     if (!view) throw new AppError("View not found", 404);
+
+    //     const updatedView = await ViewModel.findByIdAndUpdate(
+    //         id,
+    //         {
+    //             viewState: snapshotData.viewState,
+    //             items: snapshotData.items
+    //         },
+    //         { new: true }
+    //     ).populate("createdBy", "fullName email");
+
+    //     return updatedView as IView;
+    // }
+    async updateSnapshot(
+        id: string,
+        snapshotData: { viewState: any; items: any[] },
+        userId: string
+        ): Promise<IView> {
+
         const view = await ViewModel.findById(id);
         if (!view) throw new AppError("View not found", 404);
+
+        if (!snapshotData.viewState) {
+            throw new AppError("viewState is required", 400);
+        }
 
         const updatedView = await ViewModel.findByIdAndUpdate(
             id,
             {
-                viewState: snapshotData.viewState,
-                items: snapshotData.items
+            viewState: snapshotData.viewState,
+            items: snapshotData.items || [],
             },
             { new: true }
         ).populate("createdBy", "fullName email");
