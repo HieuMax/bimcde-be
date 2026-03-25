@@ -6,6 +6,8 @@ import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 const bodyParser = require("body-parser");
 import { startCleanupJob } from "./modules/system/services/cleanup.service";
+import http from "http";
+import { initSocket } from "./lib/socket.lib";
 
 const app = express();
 
@@ -35,14 +37,20 @@ const bootstrap = async () => {
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    })
+    }),
   );
 
   app.use("/api", apiRouter);
+
+  //#region Init server + socket =====
+  const server = http.createServer(app);
+  initSocket(server);
+  //#endregion
+
   logEnv();
   connectDB();
   startCleanupJob();
-  app.listen(env.PORT, () => {
+  server.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
     console.log(`API URL: ${env.APP_URL}`);
   });

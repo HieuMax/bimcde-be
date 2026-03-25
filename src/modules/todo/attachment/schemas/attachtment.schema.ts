@@ -11,6 +11,7 @@ const AttachmentSchema = new Schema<IAttachment>(
     },
     url: { type: String, required: [true, "URL is required"] },
     mimeType: { type: String },
+    location: { type: String },
     size: { type: Number },
     fileId: { type: String },
   },
@@ -20,5 +21,8 @@ const AttachmentSchema = new Schema<IAttachment>(
 AttachmentSchema.index({ todoId: 1 });
 AttachmentSchema.index({ fileId: 1 });
 
-const AttachmentModel = mongoose.model<IAttachment>("Attachment", AttachmentSchema);
+const AttachmentModel = mongoose.model<IAttachment>(
+  "Attachment",
+  AttachmentSchema,
+);
 export default AttachmentModel;

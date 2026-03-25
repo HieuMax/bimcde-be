@@ -39,7 +39,6 @@ attachtmentTodoController.post(
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const data = req.body;
-    console.log(data);
 
     if (!Array.isArray(data) || data.length === 0) {
       throw new AppError("Attachments are required", 400);

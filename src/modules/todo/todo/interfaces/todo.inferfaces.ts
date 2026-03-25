@@ -6,7 +6,7 @@ interface IPriority {
   color: string;
 }
 
-interface IAssigness {
+export interface IAssigness {
   assigneeId?: Types.ObjectId;
   name: string;
   type: string;

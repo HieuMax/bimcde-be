@@ -44,6 +44,7 @@ const commentTodoSchemas = new Schema<ICommentTodo>({
         mimeType: String,
         size: Number,
         fileId: String,
+        location: String,
       },
     ],
     default: [],
