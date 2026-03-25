@@ -1,3 +1,4 @@
+// bimcde-be\src\modules\folder\controllers\folder.controller.ts
 import express, { Request, Response } from "express";
 import FolderService from "../services/folder.service";
 import { asyncHandler } from "../../../utils/asyncHandler";

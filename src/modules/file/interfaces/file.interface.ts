@@ -1,4 +1,5 @@
 import { Document, Types } from "mongoose";
+import path from 'path';
 
 export interface IFileVersion {
   version: number;
@@ -15,7 +16,10 @@ export interface IFile extends Document {
   name: string;
   folderId: Types.ObjectId | null;
   projectId: Types.ObjectId;
+  project: Types.ObjectId;
   tags?: Types.ObjectId[];
+  path?: string;
+  mimeType: string;
 
   currentVersion: number;
   versions: IFileVersion[];

@@ -10,3 +10,5 @@ declare global {
     }
   }
 }
+
+// bimcde-be\src\@types\express\index.d.ts

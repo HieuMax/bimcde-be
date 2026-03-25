@@ -11,6 +11,8 @@ import groupModel from "../../team/schemas/group.schema";
 export default class ProjectService {
   async createProject(userId: Types.ObjectId | undefined, projectData: any) {
     try {
+      console.log("🔍 [PROJECT SERVICE] Creating project with data:", projectData);
+
       if (!userId) {
         throw new Error("User ID không được để trống.");
       }
@@ -25,6 +27,8 @@ export default class ProjectService {
       }
 
       const user = await AccountModel.findById(userId);
+      console.log("🔎 [PROJECT SERVICE] Looking for user with ID:", userId);
+      console.log("🔎 [PROJECT SERVICE] User found:", user);
       if (!user) {
         throw new Error("Người dùng không tồn tại.");
       }
@@ -42,7 +46,11 @@ export default class ProjectService {
         lastModifiedOn: new Date(),
       };
 
+      console.log("💾 [PROJECT SERVICE] Saving to DB:", newProject);
+
       const createdProject = await projectSchema.create(newProject);
+      console.log("✅ [PROJECT SERVICE] Project saved with ID:", createdProject._id);
+
       const newProjectMember = {
         projectId: createdProject._id,
         userId,
@@ -52,6 +60,7 @@ export default class ProjectService {
       };
 
       await projectMemberSchema.create(newProjectMember);
+      console.log("✅ [PROJECT SERVICE] Project member created");
 
       // Tạo permissions mặc định cho project (cả 2 giá trị đều false)
       await permissionsModel.create({
@@ -59,16 +68,22 @@ export default class ProjectService {
         isTodosRestricted: false,
         isProjectInviteRestricted: false,
       });
+      console.log("✅ [PROJECT SERVICE] Permissions created");
+
       await unitModel.create({
         projectId: createdProject._id,
       });
+      console.log("✅ [PROJECT SERVICE] Unit created");
 
       // Tạo default topics cho project
       const topicsService = new TopicsService();
       await topicsService.createTopicDefault(createdProject._id);
+      console.log("✅ [PROJECT SERVICE] Default topics created");
+      await topicsService.createTopicItemsDefault(createdProject._id);
 
       return createdProject;
     } catch (error) {
+      console.error("❌ [PROJECT SERVICE] Error:", error);
       throw error;
     }
   }

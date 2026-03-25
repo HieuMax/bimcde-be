@@ -6,11 +6,13 @@ import { env } from "../../../env";
 import FileService from "../services/file.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
+
 import { Types } from "mongoose";
 import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import Middleware
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ActivityService from "../../activity/services/activity.service";
 
+const PublicFileController = express.Router();
 const FileController = express.Router();
 const fileService = new FileService();
 const activityService = new ActivityService();
@@ -31,6 +33,32 @@ const upload = multer({
   }),
 });
 
+PublicFileController.get(
+  "/public/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    console.log("👉 [Controller] Hit /public/:id", id); 
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+
+    const result = await fileService.getFileDetailPublic(id as string, shareToken as string);
+    res.json(result);
+  })
+);
+
+PublicFileController.get(
+  "/public/:id/download",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { shareToken } = req.query;
+
+    if (!shareToken) throw new AppError("Missing Token", 401);
+
+    await fileService.downloadPublicFile(id as string, shareToken as string, res);
+  })
+);
 /**
  * POST /api/files/upload
  * Query Files: files (array of files)
@@ -324,20 +352,56 @@ FileController.post(
 );
 
 /**
+ * GET /api/files/stats/storage?projectId=...
+ * Desc: Get total storage used (bytes) for dashboard storage bar.
+ */
+FileController.get(
+  "/stats/storage",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.query;
+    if (!projectId) throw new AppError("projectId is required", 400);
+    const totalBytes = await fileService.getProjectStorageUsed(projectId as string);
+    res.json({ totalBytes });
+  }),
+);
+
+/**
+ * GET /api/files/stats/file-types?projectId=...
+ * Desc: Get file type distribution (by extension) for dashboard pie chart.
+ */
+FileController.get(
+  "/stats/file-types",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.query;
+    if (!projectId) throw new AppError("projectId is required", 400);
+    const stats = await fileService.getFileTypeStats(projectId as string);
+    res.json(stats);
+  }),
+);
+
+/**
  * GET /api/files/:id
  * Desc: Get details of a specific file.
- * NOTE: Place this AFTER /download and /all routes to avoid conflict.
+ * NOTE: MUST be AFTER /:id/detail
  */
 FileController.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
-    if (!Types.ObjectId.isValid(id)) throw new AppError("Invalid File ID", 400);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid File ID", 400);
+    }
 
     const file = await fileService.getFileDetail(id);
+    console.log("🔥🔥🔥 HIT GET FILE DETAIL", id);
+
     res.json(file);
   }),
 );
 
 export { FileController };
+
+// bimcde-be\src\modules\file\controllers\file.controller.ts

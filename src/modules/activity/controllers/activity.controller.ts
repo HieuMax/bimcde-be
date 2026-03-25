@@ -23,6 +23,7 @@ ActivityController.get(
       endDate,
       page,
       limit,
+      lightweight,
     } = req.query;
 
     if (!projectId) {
@@ -38,6 +39,7 @@ ActivityController.get(
       endDate: endDate as string,
       page: page ? parseInt(page as string) : 1,
       limit: limit ? parseInt(limit as string) : 20,
+      lightweight: lightweight === "true" || lightweight === "1",
     });
 
     res.json(result);

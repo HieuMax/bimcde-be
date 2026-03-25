@@ -1,6 +1,8 @@
 import mongoose, { Types } from "mongoose";
 import FolderModel from "../../folder/schemas/folder.schema";
 import FileModel from "../../file/schemas/file.schema";
+import ProjectModel from "../../project/schemas/project.schema";
+import { buildFolderBreadcrumb } from "../../file/services/file.service";
 
 export default class ExplorerService {
   async getExplorerContent(
@@ -149,6 +151,14 @@ export default class ExplorerService {
         })) || [],
     }));
 
+    let locationName = "";
+    if (folderId && currentFolder) {
+      locationName = currentFolder.name;
+    } else {
+      const project = await ProjectModel.findById(projectId).select("name").lean();
+      locationName = project?.name || "Project Root";
+    }
+
     const processedFiles = files.map((file) => {
       const latestVer = file.versions?.[file.versions.length - 1];
       const uploader = latestVer?.uploadedBy as any;
@@ -157,6 +167,7 @@ export default class ExplorerService {
         _id: file._id,
         name: file.name,
         folderId: file.folderId,
+        locationName: locationName,
         currentVersion: file.currentVersion,
         updatedAt: file.updatedAt,
         isLocked: file.isLocked,
@@ -164,7 +175,7 @@ export default class ExplorerService {
         size: latestVer?.size || 0,
         mimeType: latestVer?.mimeType || "unknown",
         location: latestVer?.location || "",
-        thumbnail: latestVer?.location || "", // Với ảnh thì là location, file khác cần logic thumbnail riêng
+        thumbnail: latestVer?.location || "",
         modifiedBy: uploader?.fullName || "Unknown",
         tags: file.tags,
         versions: file.versions.map((v) => ({

@@ -2,6 +2,7 @@ import ViewModel from "../schemas/view.schema";
 import { CreateViewDTO, IView } from "../interfaces/view.interface";
 import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
+import groupMemberModel from "../../team/schemas/group-member.schema";
 
 export default class ViewService {
   /**
@@ -40,7 +41,14 @@ export default class ViewService {
   async getViews(
     projectId: string,
     currentUser: any,
-    filters: { type?: string; createdBy?: string },
+    filters: {
+      type?: string;
+      createdBy?: string;
+      userIds?: string;
+      groupIds?: string;
+      startDate?: string;
+      endDate?: string;
+    },
   ) {
     const projectObjId = new Types.ObjectId(projectId);
     const userObjId = new Types.ObjectId(currentUser._id);
@@ -54,30 +62,76 @@ export default class ViewService {
       matchStage.type = filters.type;
     }
 
+    // --- Users & Groups Filter Logic ---
+    let targetUserIds: Types.ObjectId[] = [];
+
+    // 1. Users Filter
+    if (filters.userIds) {
+      const ids = filters.userIds
+        .split(",")
+        .map((id) => new Types.ObjectId(id.trim()));
+      targetUserIds.push(...ids);
+    }
+
+    // 2. Groups Filter
+    if (filters.groupIds) {
+      const groupIds = filters.groupIds
+        .split(",")
+        .map((id) => new Types.ObjectId(id.trim()));
+      const members = await groupMemberModel
+        .find({ groupId: { $in: groupIds } })
+        .select("userId");
+      const memberUserIds = members.map((m) => m.userId); // Ensure this is ObjectId
+      targetUserIds.push(...memberUserIds);
+    }
+
+    // Apply User/Group filters to 'createdBy'
+    if (targetUserIds.length > 0) {
+      matchStage.createdBy = { $in: targetUserIds };
+    } else if (filters.createdBy) {
+      // Fallback to single createdBy if no multi-user filter provided
+      matchStage.createdBy = new Types.ObjectId(filters.createdBy);
+    }
+
+    // Date Modified Filter
+    if (filters.startDate || filters.endDate) {
+      matchStage.updatedAt = {};
+      if (filters.startDate)
+        matchStage.updatedAt.$gte = new Date(filters.startDate);
+      if (filters.endDate)
+        matchStage.updatedAt.$lte = new Date(filters.endDate);
+    }
+
     console.log(currentUser.role);
 
     if (currentUser.role === "admin") {
       // Admin: Load all
-      // We ignore filters.createdBy to ensure Admin sees everything,
-      // assuming the frontend might be sending the current user's ID by default.
     } else {
       // User: Load related (Created by me OR Public OR Shared with me)
-      if (filters.createdBy) {
-        matchStage.createdBy = new Types.ObjectId(filters.createdBy);
-
-        if (filters.createdBy !== currentUserId) {
-          matchStage.$or = [
-            { "sharedWith.isPublic": true },
-            { "sharedWith.users": userObjId },
-          ];
-        }
-      } else {
-        matchStage.$or = [
+      const permissionQuery = {
+        $or: [
           { createdBy: userObjId },
           { "sharedWith.isPublic": true },
           { "sharedWith.users": userObjId },
+        ],
+      };
+
+      // Merge permission query with matchStage
+      if (matchStage.$or) {
+        // If matchStage already has $or (unlikely given current logic), we AND them
+        matchStage.$and = [
+          { $or: matchStage.$or },
+          { $or: permissionQuery.$or },
         ];
+        delete matchStage.$or;
+      } else {
+        matchStage.$or = permissionQuery.$or;
       }
+      
+      // If we filtered by createdBy (via Users/Groups), we need to ensure that condition is ALSO met.
+      // The current matchStage structure handles properties (like createdBy) as AND with the $or condition added above?
+      // Mongoose: { createdBy: ..., $or: [...] } means createdBy AND ($or condition).
+      // So this works correctly.
     }
 
     // [LƯU Ý] Vì dùng .lean(), kết quả trả về là Plain JS Object, không phải Mongoose Document

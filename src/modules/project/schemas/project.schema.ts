@@ -1,3 +1,4 @@
+// bimcde-be\src\modules\project\schemas\project.schema.ts
 import { model, Schema } from "mongoose";
 import { IProject } from "../interfaces/project.interfaces";
 
