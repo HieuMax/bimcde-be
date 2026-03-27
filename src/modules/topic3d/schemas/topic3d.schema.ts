@@ -46,13 +46,12 @@ const Topic3DSchema = new Schema<ITopic>(
 );
 
 // Tự động sinh topicKey trước khi lưu
-Topic3DSchema.pre("save", async function (next) {
+Topic3DSchema.pre("save", async function () {
     if (this.isNew) {
-        const count = await mongoose.model("Topic3D").countDocuments({ projectId: this.projectId });
-        // Có thể thay "TOPIC" bằng Prefix của Project nếu bạn có lưu Prefix trong Project Model
+        const Model = this.constructor as mongoose.Model<any>;
+        const count = await Model.countDocuments({ projectId: this.projectId });
         this.topicKey = `TOPIC-${count + 1}`; 
     }
-    next();
 });
 
 const TopicModel = mongoose.model<ITopic>("Topic3D", Topic3DSchema);

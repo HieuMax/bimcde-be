@@ -2,14 +2,14 @@ import express, { Request, Response } from "express";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import View2DService from "../services/view2d.service";
-import { authenticate } from "../../../middlewares/authMiddlewares"; // Middleware xác thực
+import { authenticate } from "../../../middlewares/authMiddlewares"; 
 
 const View2DController = express.Router();
 const view2dService = new View2DService();
 
 View2DController.post(
   "/",
-  authenticate, // 👈 Bắt buộc phải đăng nhập
+  authenticate, 
   asyncHandler(async (req: Request, res: Response) => {
     const { 
       name, 
@@ -79,11 +79,8 @@ View2DController.get(
   "/project/:projectId",
   // authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { projectId } = req.params;
-    
-    // Gọi hàm từ service mà bạn đã viết sẵn
+    const { projectId } = req.params;    
     const result = await view2dService.getViewsByProject(projectId);
-    
     res.status(200).json(result);
   })
 );
@@ -111,14 +108,12 @@ View2DController.put(
   })
 );
 
-
 View2DController.delete(
   "/:id",
-  authenticate, // 👈 Bắt buộc xác thực
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
-    // 👈 Lấy userId thực từ middleware
     const userId = (req as any).userId;
     
     if (!userId) {

@@ -427,18 +427,75 @@ export default class FileService {
   }
 
   // RENAME FILE
-  async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
+  // async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
+  //   const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
+  //   if (!file) throw new Error("File not found");
+
+  //   const ext = path.extname(file.name);
+  //   const newFullName = `${newNameWithoutExt}${ext}`;
+
+  //   if (file.name === newFullName) return file;
+
+  //   const duplicate = await FileModel.findOne({
+  //     folderId: file.folderId,
+  //     name: newFullName,
+  //     isDeleted: false,
+  //   });
+  //   if (duplicate) throw new Error("A file with this name already exists.");
+
+  //   if (file.isLocked && file.lockedBy?.toString() !== userId) {
+  //     throw new Error("File is locked by another user.");
+  //   }
+
+  //   const lastVer = file.versions[file.versions.length - 1];
+  //   const nextVersion = file.currentVersion + 1;
+
+  //   const newVersionData = {
+  //     version: nextVersion,
+  //     fileName: newFullName,
+  //     storageKey: lastVer.storageKey,
+  //     location: lastVer.location,
+  //     size: lastVer.size,
+  //     mimeType: lastVer.mimeType,
+  //     uploadedBy: new Types.ObjectId(userId),
+  //     createdAt: new Date(),
+  //   };
+
+  //   file.name = newFullName;
+  //   file.currentVersion = nextVersion;
+  //   file.versions.push(newVersionData);
+  //   return await file.save();
+  // }
+
+  // RENAME FILE
+  async renameFile(fileId: string, newNameFromClient: string, userId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
 
     const ext = path.extname(file.name);
-    const newFullName = `${newNameWithoutExt}${ext}`;
+    let finalName = newNameFromClient.trim();
+    
+    if (ext) {
+      // 1. Gọt sạch các khoảng trắng và dấu chấm ở cuối
+      finalName = finalName.replace(/[\.\s]+$/, '');
+      
+      // 2. Vòng lặp xóa sạch TẤT CẢ các đuôi bị lặp (vd: gọt sạch .pdf.pdf.pdf)
+      while (finalName.toLowerCase().endsWith(ext.toLowerCase())) {
+        finalName = finalName.slice(0, -ext.length);
+        finalName = finalName.replace(/[\.\s]+$/, ''); 
+      }
+    }
 
+    // 🌟 ĐÃ FIX LỖI: Sử dụng 'finalName' thay vì 'newNameWithoutExt'
+    const newFullName = `${finalName}${ext}`;
+
+    // Nếu tên không thay đổi thì return luôn, không làm gì cả
     if (file.name === newFullName) return file;
 
     const duplicate = await FileModel.findOne({
       folderId: file.folderId,
       name: newFullName,
+      projectId: file.projectId, // Đảm bảo check trùng trong cùng project
       isDeleted: false,
     });
     if (duplicate) throw new Error("A file with this name already exists.");
@@ -450,6 +507,7 @@ export default class FileService {
     const lastVer = file.versions[file.versions.length - 1];
     const nextVersion = file.currentVersion + 1;
 
+    // Lưu lịch sử bản Version mới
     const newVersionData = {
       version: nextVersion,
       fileName: newFullName,
@@ -464,6 +522,7 @@ export default class FileService {
     file.name = newFullName;
     file.currentVersion = nextVersion;
     file.versions.push(newVersionData);
+    
     return await file.save();
   }
 
