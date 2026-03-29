@@ -61,7 +61,6 @@ export default class View2DService {
     }
   }
 
-  // Lấy danh sách View theo Project
   async getViewsByProject(projectId: string) {
     if (!Types.ObjectId.isValid(projectId)) {
       throw new AppError("Invalid Project ID", 400);
@@ -70,12 +69,11 @@ export default class View2DService {
     try {
       const views = await View2DModel.find({
         projectId: new Types.ObjectId(projectId),
-        isDeleted: false, // Giả sử bạn có field này
+        isDeleted: false,
       })
         .sort({ createdAt: -1 })
         .populate("createdBy", "fullName email")
         .populate("updatedBy", "fullName email")
-        // Khuyên dùng: Populate thêm fileId để frontend biết view này thuộc file nào
         .populate("fileId", "name"); 
 
       return views;
