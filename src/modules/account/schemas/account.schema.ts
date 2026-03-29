@@ -30,8 +30,10 @@ const accountSchema = new Schema<IAccount>(
       default: "user",
     },
     phone: { type: String },
+    resetPasswordToken: { type: String },
+    resetPasswordExpire: { type: Date },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 accountSchema.pre("save", async function (next) {

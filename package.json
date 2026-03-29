@@ -37,7 +37,8 @@
     "multer": "^2.0.2",
     "multer-s3": "^3.0.1",
     "node-cron": "^4.2.1",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^7.0.13",
+    "socket.io": "^4.8.3",
     "openai": "^6.27.0",
     "uuid": "^13.0.0"
   },
