@@ -5,9 +5,23 @@ import {
   TopicPriority,
 } from "../schemas/topics.schema";
 import TopicItemModel from "../schemas/topic-item.schema";
-import { ITopicItem } from "../interfaces/topic-item.interface";
 import { ITopicData } from "../interfaces/topics.interface";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
+import { AppError } from "../../../utils/AppError";
+import {
+  assertTagsInputWithinLimits,
+  assertValidTopicTitle,
+  parseOptionalTopicDueDate,
+  parseTopicPriority,
+  parseTopicStatus,
+  parseTopicType,
+  sanitizeTopicAssignee,
+  sanitizeTopicDescription,
+  sanitizeTopicTags,
+  sanitizeTopicTitle,
+} from "../utils/topicItemInput.validation";
+
+const TOPIC_ATTACHMENTS_MAX = 50;
 
 export default class TopicsService {
   // Cập nhật Topic cho dự án
@@ -280,17 +294,29 @@ export default class TopicsService {
     const code = `THEBU-${count + 1}`;
     const now = new Date();
 
+    const safeTitle = sanitizeTopicTitle(payload.title);
+    assertValidTopicTitle(safeTitle);
+    assertTagsInputWithinLimits(payload.tags);
+    const safeTags = sanitizeTopicTags(payload.tags);
+    const safeDescription = sanitizeTopicDescription(payload.description ?? "");
+    const safeAssignee = sanitizeTopicAssignee(payload.assignee ?? "");
+    const type = parseTopicType(payload.type ?? "Undefined");
+    const status = parseTopicStatus(payload.status ?? "New");
+    const priority = parseTopicPriority(payload.priority ?? "Normal");
+    const dueDate = parseOptionalTopicDueDate(payload.dueDate);
+    const due = dueDate === undefined ? null : dueDate;
+
     const doc = await TopicItemModel.create({
       projectId: new Types.ObjectId(projectId),
       code,
-      title: payload.title?.trim() || "Untitled",
-      description: payload.description ?? "",
-      assignee: payload.assignee ?? "",
-      type: payload.type ?? "Undefined",
-      status: payload.status ?? "New",
-      priority: payload.priority ?? "Normal",
-      tags: Array.isArray(payload.tags) ? payload.tags : [],
-      dueDate: payload.dueDate ?? null,
+      title: safeTitle,
+      description: safeDescription,
+      assignee: safeAssignee,
+      type,
+      status,
+      priority,
+      tags: safeTags,
+      dueDate: due,
       authorName: payload.authorName ?? "Unknown",
       thumbnailUrl: "",
       stats: { comments: 0, viewpoints: 0, attachments: 0 },
@@ -327,25 +353,34 @@ export default class TopicsService {
       throw new Error("Bạn không có quyền truy cập vào dự án này.");
     }
 
-    if (payload.title !== undefined)
-      topicItem.title = payload.title.trim() || topicItem.title;
-    if (payload.description !== undefined)
-      topicItem.description = payload.description ?? topicItem.description;
-    if (payload.assignee !== undefined)
-      topicItem.assignee = payload.assignee ?? "";
-    if (payload.type !== undefined)
-      topicItem.type = payload.type as ITopicItem["type"];
-    if (payload.status !== undefined)
-      topicItem.status = payload.status as ITopicItem["status"];
-    if (payload.priority !== undefined)
-      topicItem.priority = payload.priority as ITopicItem["priority"];
-    if (payload.tags !== undefined)
-      topicItem.tags = Array.isArray(payload.tags) ? payload.tags : topicItem.tags;
-    if (payload.dueDate !== undefined)
-      topicItem.dueDate =
-        payload.dueDate === null || payload.dueDate === undefined
-          ? undefined
-          : payload.dueDate;
+    if (payload.title !== undefined) {
+      const t = sanitizeTopicTitle(payload.title);
+      assertValidTopicTitle(t);
+      topicItem.title = t;
+    }
+    if (payload.description !== undefined) {
+      topicItem.description = sanitizeTopicDescription(payload.description);
+    }
+    if (payload.assignee !== undefined) {
+      topicItem.assignee = sanitizeTopicAssignee(payload.assignee);
+    }
+    if (payload.type !== undefined) {
+      topicItem.type = parseTopicType(payload.type);
+    }
+    if (payload.status !== undefined) {
+      topicItem.status = parseTopicStatus(payload.status);
+    }
+    if (payload.priority !== undefined) {
+      topicItem.priority = parseTopicPriority(payload.priority);
+    }
+    if (payload.tags !== undefined) {
+      assertTagsInputWithinLimits(payload.tags);
+      topicItem.tags = sanitizeTopicTags(payload.tags);
+    }
+    if (payload.dueDate !== undefined) {
+      const d = parseOptionalTopicDueDate(payload.dueDate);
+      topicItem.dueDate = d === null || d === undefined ? undefined : d;
+    }
 
     await topicItem.save();
 
@@ -409,6 +444,14 @@ export default class TopicsService {
         fileId: a?.fileId ? String(a.fileId) : undefined,
       }))
       .filter((a) => a.name && a.url);
+
+    const currentLen = (topicItem.attachments ?? []).length;
+    if (currentLen + normalized.length > TOPIC_ATTACHMENTS_MAX) {
+      throw new AppError(
+        `At most ${TOPIC_ATTACHMENTS_MAX} references per topic.`,
+        400,
+      );
+    }
 
     topicItem.attachments = [...(topicItem.attachments ?? []), ...normalized];
     topicItem.stats = topicItem.stats ?? { comments: 0, viewpoints: 0, attachments: 0 };

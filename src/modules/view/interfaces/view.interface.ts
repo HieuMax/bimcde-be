@@ -42,6 +42,8 @@ export interface IView extends Document {
     users: Types.ObjectId[];
   };
 
+  tags?: Types.ObjectId[];
+
   viewState: IViewState;
 
   createdAt: Date;
@@ -61,4 +63,6 @@ export interface CreateViewDTO {
     isPublic?: boolean;
     users?: string[];
   };
+  /** Tag document ids */
+  tags?: string[];
 }
