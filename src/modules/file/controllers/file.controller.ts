@@ -1,11 +1,26 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import multer from "multer";
-import multerS3 from "multer-s3";
-import { s3Client } from "../../../lib/r2.lib"; // Import client ở bước 1
+import crypto from "crypto";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import { v4 as uuidv4 } from "uuid";
 import { env } from "../../../env";
 import FileService from "../services/file.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
+import {
+  MAX_UPLOAD_BYTES,
+  sanitizeUploadFileName,
+  validateUploadedFileContent,
+  parseConflictStrategy,
+} from "../utils/fileUpload.validation";
+import { uploadLocalFileToR2 } from "../utils/r2UploadFromDisk";
+import { fileTypeFromFilePath } from "../utils/fileTypeSniff";
+import {
+  MAX_FILES_PER_UPLOAD,
+  PROJECT_STORAGE_LIMIT_BYTES,
+} from "../constants/projectStorage";
 
 import { Types } from "mongoose";
 import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import Middleware
@@ -17,21 +32,41 @@ const FileController = express.Router();
 const fileService = new FileService();
 const activityService = new ActivityService();
 
-// Multer configuration for R2
-const upload = multer({
-  storage: multerS3({
-    s3: s3Client,
-    bucket: env.R2_BUCKET_NAME || "bimbucket",
-    contentType: multerS3.AUTO_CONTENT_TYPE,
-    metadata: function (req, file, cb) {
-      cb(null, { fieldName: file.fieldname });
-    },
-    key: function (req, file, cb) {
-      const uniqueName = `${Date.now()}_${file.originalname}`;
-      cb(null, uniqueName);
-    },
-  }),
+const UPLOAD_TMP = path.join(os.tmpdir(), "bimcde-uploads");
+
+const diskStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    fs.mkdir(UPLOAD_TMP, { recursive: true })
+      .then(() => cb(null, UPLOAD_TMP))
+      .catch((err) => cb(err as Error, UPLOAD_TMP));
+  },
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}_${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname)}`;
+    cb(null, unique);
+  },
 });
+
+const uploadDisk = multer({
+  storage: diskStorage,
+  limits: { fileSize: MAX_UPLOAD_BYTES },
+});
+
+const handleMulterArray = (req: Request, res: Response, next: NextFunction) => {
+  uploadDisk.array("files", MAX_FILES_PER_UPLOAD)(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return next(new AppError("Each file must be 100MB or smaller", 400));
+      }
+      if (err instanceof multer.MulterError && err.code === "LIMIT_UNEXPECTED_FILE") {
+        return next(
+          new AppError(`You can upload at most ${MAX_FILES_PER_UPLOAD} files at once`, 400),
+        );
+      }
+      return next(err instanceof Error ? err : new AppError("Upload failed", 400));
+    }
+    next();
+  });
+};
 
 PublicFileController.get(
   "/public/:id",
@@ -59,28 +94,74 @@ PublicFileController.get(
     await fileService.downloadPublicFile(id as string, shareToken as string, res);
   })
 );
+
 /**
  * POST /api/files/upload
- * Query Files: files (array of files)
- * Desc: Upload multiple files to a project/folder.
+ * multipart: files[], projectId, folderId?, userId, conflictStrategy? ("version" | "copy")
+ * Files are validated via magic bytes, streamed from disk to R2 (no memory buffer of full file).
  */
 FileController.post(
   "/upload",
-  upload.array("files"),
+  handleMulterArray,
   asyncHandler(async (req: Request, res: Response) => {
-    const files = req.files as Express.MulterS3.File[];
+    const files = req.files as Express.Multer.File[];
 
     if (!files || files.length === 0) {
       throw new AppError("No files uploaded", 400);
     }
 
     const { projectId, folderId, userId } = req.body;
+    if (!projectId || !userId) {
+      for (const f of files) await fs.unlink(f.path).catch(() => {});
+      throw new AppError("projectId and userId are required", 400);
+    }
 
-    const results = await Promise.all(
-      files.map((file) =>
-        fileService.handleFileUpload(file, projectId, folderId, userId),
-      ),
+    const conflictStrategy = parseConflictStrategy(req.body.conflictStrategy);
+
+    await fileService.assertIncomingUploadsFitProjectQuota(
+      projectId,
+      folderId,
+      files.map((f) => ({
+        sanitizedName: sanitizeUploadFileName(f.originalname),
+        size: f.size,
+      })),
+      conflictStrategy,
     );
+
+    const results: unknown[] = [];
+
+    for (const file of files) {
+      try {
+        const sanitized = sanitizeUploadFileName(file.originalname);
+        const detected = await fileTypeFromFilePath(file.path);
+        const { mimeType } = validateUploadedFileContent(sanitized, detected);
+        const storageKey = `${Date.now()}_${uuidv4()}_${sanitized.replace(/\s+/g, "_")}`;
+        await uploadLocalFileToR2({
+          localPath: file.path,
+          key: storageKey,
+          contentType: mimeType,
+        });
+        await fs.unlink(file.path).catch(() => {});
+        const publicUrl = `https://${env.R2_PUBLIC_DOMAIN}/${storageKey}`;
+        const doc = await fileService.handleFileUpload(
+          {
+            storageKey,
+            originalname: sanitized,
+            size: file.size,
+            mimeType,
+            location: publicUrl,
+          },
+          projectId,
+          folderId,
+          userId,
+          conflictStrategy,
+        );
+        results.push(doc);
+      } catch (e) {
+        await fs.unlink(file.path).catch(() => {});
+        throw e;
+      }
+    }
 
     res.status(201).json(results);
   }),
@@ -362,7 +443,10 @@ FileController.get(
     const { projectId } = req.query;
     if (!projectId) throw new AppError("projectId is required", 400);
     const totalBytes = await fileService.getProjectStorageUsed(projectId as string);
-    res.json({ totalBytes });
+    res.json({
+      totalBytes,
+      limitBytes: PROJECT_STORAGE_LIMIT_BYTES,
+    });
   }),
 );
 

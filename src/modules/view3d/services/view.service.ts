@@ -3,6 +3,13 @@ import { AppError } from "../../../utils/AppError";
 import { Types } from "mongoose";
 import ViewModel from "../schemas/view.schemas";
 import groupMemberModel from "../../team/schemas/group-member.schema";
+import {
+  assertDescriptionWithinLimit,
+  assertValidViewName,
+  normalizeViewTagIds,
+  sanitizeViewDescription,
+  sanitizeViewName,
+} from "../../view/utils/viewInput.validation";
 
 export default class ViewService {
 
@@ -52,16 +59,55 @@ export default class ViewService {
     }
 
     // --- UPDATE VIEW INFO (Text only) ---
-    async updateViewInfo(id: string, data: Partial<IView>, userId: string): Promise<IView> {
+    async updateViewInfo(
+        id: string,
+        data: Partial<{
+            title: string;
+            description: string;
+            shareWith: string[];
+            tags: string[];
+        }>,
+        userId: string,
+    ): Promise<IView> {
         const view = await ViewModel.findById(id);
         if (!view) throw new AppError("View not found", 404);
 
-        const { title, description, shareWith, tags } = data;
+        if (view.createdBy.toString() !== userId) {
+            throw new AppError("Only the owner can modify this view", 403);
+        }
+
+        const patch: Record<string, unknown> = {};
+
+        if (data.title !== undefined) {
+            const t = sanitizeViewName(data.title);
+            assertValidViewName(t);
+            patch.title = t;
+        }
+
+        if (data.description !== undefined) {
+            assertDescriptionWithinLimit(data.description);
+            patch.description = sanitizeViewDescription(data.description);
+        }
+
+        if (data.shareWith !== undefined) {
+            patch.shareWith = Array.isArray(data.shareWith) ? data.shareWith : [];
+        }
+
+        if (data.tags !== undefined) {
+            patch.tags = normalizeViewTagIds(data.tags);
+        }
+
+        if (Object.keys(patch).length === 0) {
+            const unchanged = await ViewModel.findById(id)
+                .populate("createdBy", "fullName email")
+                .exec();
+            return unchanged as IView;
+        }
 
         const updatedView = await ViewModel.findByIdAndUpdate(
             id,
-            { title, description, shareWith, tags },
-            { new: true, runValidators: true }
+            { $set: patch },
+            { new: true, runValidators: true },
         ).populate("createdBy", "fullName email");
 
         return updatedView as IView;

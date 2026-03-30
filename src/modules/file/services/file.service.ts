@@ -15,6 +15,8 @@ import { v4 as uuidv4 } from "uuid";
 import archiver from "archiver";
 import { Response } from "express";
 import path from "path";
+import { ConflictStrategy } from "../utils/fileUpload.validation";
+import { PROJECT_STORAGE_LIMIT_BYTES } from "../constants/projectStorage";
 
  console.log("📧 MAIL CONFIG CHECK:", {
   user: env.MAIL_USER,
@@ -401,6 +403,68 @@ export default class FileService {
   }
 
   /**
+   * Planned uploads vs {@link PROJECT_STORAGE_LIMIT_BYTES}.
+   * Uses same metric as {@link getProjectStorageUsed}: sum of latest version size per file.
+   * Accounts for new file (+size) vs new version (replace latest size delta).
+   */
+  async assertIncomingUploadsFitProjectQuota(
+    projectId: string,
+    folderId: string | null | undefined,
+    uploads: { sanitizedName: string; size: number }[],
+    conflictStrategy: ConflictStrategy = "version",
+  ): Promise<void> {
+    let validFolderId: Types.ObjectId | null = null;
+    if (folderId && folderId !== "null" && folderId !== "undefined" && folderId !== "") {
+      validFolderId = new Types.ObjectId(folderId);
+    }
+    const projectObjId = new Types.ObjectId(projectId);
+
+    let virtualUsed = await this.getProjectStorageUsed(projectId);
+
+    for (const { sanitizedName, size } of uploads) {
+      let targetName = sanitizedName;
+
+      if (conflictStrategy === "copy") {
+        const sameName = await FileModel.findOne({
+          folderId: validFolderId,
+          name: sanitizedName,
+          projectId: projectObjId,
+          isDeleted: false,
+        });
+        if (sameName) {
+          targetName = await this.generateUniqueCopyName(
+            sanitizedName,
+            validFolderId,
+            projectObjId,
+          );
+        }
+      }
+
+      const existingFile = await FileModel.findOne({
+        folderId: validFolderId,
+        name: targetName,
+        projectId: projectObjId,
+        isDeleted: false,
+      });
+
+      if (existingFile) {
+        const last = existingFile.versions[existingFile.versions.length - 1];
+        const oldSz = last?.size ?? 0;
+        virtualUsed = virtualUsed - oldSz + size;
+      } else {
+        virtualUsed += size;
+      }
+
+      if (virtualUsed > PROJECT_STORAGE_LIMIT_BYTES) {
+        throw new AppError(
+          "This upload would exceed the project storage limit (500 MB). Remove files or use smaller files.",
+          413,
+        );
+      }
+    }
+  }
+
+  /**
    * Get file type statistics for a project (count by extension).
    * Used for dashboard pie chart.
    */
@@ -526,12 +590,41 @@ export default class FileService {
     return await file.save();
   }
 
+  /** "file (1).ext", "file (2).ext", … when keeping a separate document */
+  private async generateUniqueCopyName(
+    fullName: string,
+    folderId: Types.ObjectId | null,
+    projectId: Types.ObjectId,
+  ): Promise<string> {
+    const ext = path.extname(fullName);
+    const base = fullName.slice(0, -ext.length);
+    let n = 1;
+    for (;;) {
+      const candidate = `${base} (${n})${ext}`;
+      const dup = await FileModel.findOne({
+        folderId,
+        name: candidate,
+        projectId,
+        isDeleted: false,
+      });
+      if (!dup) return candidate;
+      n += 1;
+    }
+  }
+
   // HANDLE FILE UPLOAD
   async handleFileUpload(
-    fileData: Express.MulterS3.File,
+    fileData: {
+      storageKey: string;
+      originalname: string;
+      size: number;
+      mimeType: string;
+      location: string;
+    },
     projectId: string,
     folderId: string | null | undefined,
     userId: string,
+    conflictStrategy: ConflictStrategy = "version",
   ) {
     let validFolderId: Types.ObjectId | null = null;
 
@@ -539,32 +632,39 @@ export default class FileService {
       validFolderId = new Types.ObjectId(folderId);
     }
 
-    const publicUrl = `https://${env.R2_PUBLIC_DOMAIN}/${fileData.key}`;
+    const projectObjId = new Types.ObjectId(projectId);
+    let finalName = fileData.originalname;
 
     let existingFile = await FileModel.findOne({
       folderId: validFolderId,
-      name: fileData.originalname,
-      projectId: new Types.ObjectId(projectId),
+      name: finalName,
+      projectId: projectObjId,
       isDeleted: false,
     });
+
+    if (existingFile && conflictStrategy === "copy") {
+      finalName = await this.generateUniqueCopyName(finalName, validFolderId, projectObjId);
+      existingFile = null;
+    }
 
     if (existingFile) {
       if (
         existingFile.isLocked &&
         existingFile.lockedBy?.toString() !== userId
       ) {
-        throw new Error(
+        throw new AppError(
           "File is locked by another user. Cannot upload new version.",
+          409,
         );
       }
     }
 
     const newVersionData = {
-      fileName: fileData.originalname,
-      storageKey: fileData.key,
-      location: publicUrl,
+      fileName: finalName,
+      storageKey: fileData.storageKey,
+      location: fileData.location,
       size: fileData.size,
-      mimeType: fileData.mimetype,
+      mimeType: fileData.mimeType,
       uploadedBy: new Types.ObjectId(userId),
       createdAt: new Date(),
     };
@@ -577,16 +677,16 @@ export default class FileService {
       });
       existingFile.currentVersion = nextVersion;
       return await existingFile.save();
-    } else {
-      const newFile = new FileModel({
-        name: fileData.originalname,
-        folderId: validFolderId,
-        projectId: new Types.ObjectId(projectId),
-        currentVersion: 1,
-        versions: [{ ...newVersionData, version: 1 }],
-      });
-      return await newFile.save();
     }
+
+    const newFile = new FileModel({
+      name: finalName,
+      folderId: validFolderId,
+      projectId: projectObjId,
+      currentVersion: 1,
+      versions: [{ ...newVersionData, version: 1 }],
+    });
+    return await newFile.save();
   }
 
   async getFilesInFolder(folderId: string) {
