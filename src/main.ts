@@ -8,6 +8,7 @@ const bodyParser = require("body-parser");
 import { startCleanupJob } from "./modules/system/services/cleanup.service";
 import http from "http";
 import { initSocket } from "./lib/socket.lib";
+import { AppError } from "./utils/AppError";
 
 const app = express();
 
@@ -47,6 +48,20 @@ const bootstrap = async () => {
   const server = http.createServer(app);
   initSocket(server);
   //#endregion
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json({ message: err.message });
+      }
+      console.error("[API Error]", err);
+      return res.status(500).json({ message: "Internal server error" });
+    },
+  );
 
   logEnv();
   connectDB();

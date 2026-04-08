@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import express from "express";
 import { Types } from "mongoose";
 import { authenticate } from "../../../middlewares/authMiddlewares";
+import { asyncHandler } from "../../../utils/asyncHandler";
 import TopicsService from "../services/topics.services";
 
 const TopicsController = express.Router();
@@ -62,56 +63,40 @@ TopicsController.get(
 TopicsController.post(
   "/items/create/:projectId",
   authenticate,
-  async (req: Request, res: Response) => {
-    try {
-      const { projectId } = req.params;
-      const payload = req.body;
-      const result = await topicsService.createTopicItem(
-        req.userId,
-        projectId,
-        payload,
-      );
-      res.status(201).json({
-        success: true,
-        message: "Topic created successfully",
-        result,
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: "Error creating topic",
-        error: error.message,
-      });
-    }
-  },
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.params;
+    const payload = req.body;
+    const result = await topicsService.createTopicItem(
+      req.userId,
+      projectId,
+      payload,
+    );
+    res.status(201).json({
+      success: true,
+      message: "Topic created successfully",
+      result,
+    });
+  }),
 );
 
 // Update a topic item
 TopicsController.put(
   "/items/:topicItemId",
   authenticate,
-  async (req: Request, res: Response) => {
-    try {
-      const { topicItemId } = req.params;
-      const payload = req.body;
-      const result = await topicsService.updateTopicItem(
-        req.userId,
-        topicItemId,
-        payload,
-      );
-      res.status(200).json({
-        success: true,
-        message: "Topic updated successfully",
-        result,
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: "Error updating topic",
-        error: error.message,
-      });
-    }
-  },
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+    const payload = req.body;
+    const result = await topicsService.updateTopicItem(
+      req.userId,
+      topicItemId,
+      payload,
+    );
+    res.status(200).json({
+      success: true,
+      message: "Topic updated successfully",
+      result,
+    });
+  }),
 );
 
 // Get all topic instances (BCF topics)
@@ -143,29 +128,21 @@ TopicsController.get(
 TopicsController.post(
   "/items/:topicItemId/attachments",
   authenticate,
-  async (req: Request, res: Response) => {
-    try {
-      const { topicItemId } = req.params;
-      const { attachments } = req.body;
-      const result = await topicsService.addTopicAttachments(
-        req.userId,
-        topicItemId,
-        attachments,
-      );
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+    const { attachments } = req.body;
+    const result = await topicsService.addTopicAttachments(
+      req.userId,
+      topicItemId,
+      attachments,
+    );
 
-      res.status(200).json({
-        success: true,
-        message: "Topic attachments added successfully",
-        result,
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: "Error adding topic attachments",
-        error: error.message,
-      });
-    }
-  },
+    res.status(200).json({
+      success: true,
+      message: "Topic attachments added successfully",
+      result,
+    });
+  }),
 );
 
 TopicsController.delete(

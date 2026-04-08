@@ -3,6 +3,13 @@ import { CreateViewDTO, IView } from "../interfaces/view.interface";
 import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
 import groupMemberModel from "../../team/schemas/group-member.schema";
+import {
+  assertDescriptionWithinLimit,
+  assertValidViewName,
+  normalizeViewTagIds,
+  sanitizeViewDescription,
+  sanitizeViewName,
+} from "../utils/viewInput.validation";
 
 export default class ViewService {
   /**
@@ -14,10 +21,21 @@ export default class ViewService {
       throw new AppError("2D View must be associated with a file", 400);
     }
 
+    const safeName = sanitizeViewName(data.name);
+    assertValidViewName(safeName);
+    if (data.description !== undefined && data.description !== null) {
+      assertDescriptionWithinLimit(data.description);
+    }
+    const safeDescription =
+      data.description === undefined || data.description === null
+        ? ""
+        : sanitizeViewDescription(data.description);
+    const tagIds = normalizeViewTagIds(data.tags ?? []);
+
     const newView = new ViewModel({
       projectId: new Types.ObjectId(data.projectId),
-      name: data.name,
-      description: data.description,
+      name: safeName,
+      description: safeDescription,
       thumbnailUrl: data.thumbnailUrl,
       type: data.type,
       relatedFileId: data.relatedFileId
@@ -28,6 +46,7 @@ export default class ViewService {
         isPublic: data.sharedWith?.isPublic || false,
         users: data.sharedWith?.users?.map((u) => new Types.ObjectId(u)) || [],
       },
+      tags: tagIds.map((id) => new Types.ObjectId(id)),
       viewState: data.viewState,
     });
 
@@ -138,6 +157,7 @@ export default class ViewService {
     return await ViewModel.find(matchStage)
       .populate("createdBy", "fullName email")
       .populate("relatedFileId", "name")
+      .populate("tags", "name color")
       .sort({ updatedAt: -1 })
       .lean();
   }
@@ -146,10 +166,9 @@ export default class ViewService {
    * Lấy chi tiết 1 View
    */
   async getViewById(viewId: string, currentUserId: string) {
-    const view = await ViewModel.findById(viewId).populate(
-      "createdBy",
-      "fullName",
-    );
+    const view = await ViewModel.findById(viewId)
+      .populate("createdBy", "fullName")
+      .populate("tags", "name color");
     if (!view) throw new AppError("View not found", 404);
 
     const isOwner = view.createdBy._id.toString() === currentUserId;
@@ -182,9 +201,21 @@ export default class ViewService {
       throw new AppError("Only the owner can modify this view", 403);
     }
 
-    // Map dữ liệu update
-    if (updateData.name) view.name = updateData.name;
-    if (updateData.description) view.description = updateData.description;
+    if (updateData.name !== undefined && updateData.name !== null) {
+      const n = sanitizeViewName(updateData.name);
+      assertValidViewName(n);
+      view.name = n;
+    }
+
+    if (updateData.description !== undefined) {
+      assertDescriptionWithinLimit(updateData.description);
+      view.description = sanitizeViewDescription(updateData.description);
+    }
+
+    if (updateData.tags !== undefined) {
+      const ids = normalizeViewTagIds(updateData.tags);
+      view.tags = ids.map((id) => new Types.ObjectId(id)) as any;
+    }
 
     // [FIX] TS2741: Việc fix Interface IViewState ở bước 1 sẽ giải quyết lỗi gán ở đây
     // Nếu vẫn lỗi, hãy đảm bảo updateData.viewState có cấu trúc khớp với Schema
@@ -208,8 +239,12 @@ export default class ViewService {
         );
     }
 
-    // [FIX] TS2322 (Tương tự createView)
-    return (await view.save()) as unknown as IView;
+    await view.save();
+    const fresh = await ViewModel.findById(view._id)
+      .populate("createdBy", "fullName email")
+      .populate("relatedFileId", "name")
+      .populate("tags", "name color");
+    return fresh as unknown as IView;
   }
 
   async deleteView(viewId: string, currentUserId: string) {

@@ -33,13 +33,20 @@ FolderController.post(
   asyncHandler(async (req: Request, res: Response) => {
     const { name, projectId, parentId, createdBy } = req.body;
 
-    if (!name || !projectId)
-      throw new AppError("Name and ProjectID required", 400);
+    if (!projectId) throw new AppError("Project ID is required", 400);
+
+    const normalizedParentId =
+      parentId &&
+      parentId !== "null" &&
+      parentId !== "undefined" &&
+      String(parentId).trim() !== ""
+        ? parentId
+        : null;
 
     const newFolder = await folderService.createFolder({
       name,
       projectId,
-      parentId,
+      parentId: normalizedParentId,
       createdBy,
     });
     res.status(201).json(newFolder);
