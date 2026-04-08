@@ -23,7 +23,6 @@ import { AIController } from "../modules/chatbot/controllers/chatbot.controller"
 import { TodoController } from "../modules/todo/todo/controllers/todo.controllers";
 import TodoCommentController from "../modules/todo/comment/controllers/comment.controller";
 import ClashController from "../modules/clashSet/controllers/clash.controller";
-import { attachtmentTodoController } from "../modules/todo/attachment/controllers/attachment.controller";
 import { NotificationController } from "../modules/notification/controllers/notification.controller";
 
 const apiRouter = express.Router();
@@ -52,7 +51,6 @@ apiRouter.use("/assistant", AIController);
 apiRouter.use("/clash-sets", ClashController);
 apiRouter.use("/todo", TodoController);
 apiRouter.use("/todo/comment", TodoCommentController);
-apiRouter.use("/todo/attachment", attachtmentTodoController);
 apiRouter.use("/notification", NotificationController);
 
 export { apiRouter };
