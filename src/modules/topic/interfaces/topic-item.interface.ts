@@ -20,6 +20,11 @@ export interface ITopicItem extends mongoose.Document {
   title: string;
   description?: string;
 
+  /** Primary linked file (ISO publish gate); optional on legacy rows */
+  fileId?: mongoose.Types.ObjectId | null;
+  linkedFileVersion?: number | null;
+  authorUserId?: mongoose.Types.ObjectId | null;
+
   assignee?: string;
   type:
     | "Undefined"
@@ -31,7 +36,13 @@ export interface ITopicItem extends mongoose.Document {
     | "Solution"
     | "Remark"
     | "Clash";
-  status: "New" | "In Progress" | "Waiting" | "Done" | "Closed";
+  status:
+    | "New"
+    | "In Progress"
+    | "Waiting"
+    | "Done"
+    | "Resolved"
+    | "Closed";
   priority: "Low" | "Normal" | "High" | "Critical";
 
   tags: string[];

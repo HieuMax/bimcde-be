@@ -1,5 +1,5 @@
 import { Document, Types } from "mongoose";
-import path from 'path';
+import type { CdeFolderStage } from "../../../constants/cde-workflow";
 
 export interface IFileVersion {
   version: number;
@@ -30,6 +30,20 @@ export interface IFile extends Document {
 
   isDeleted: boolean;
   deletedAt?: Date;
+
+  createdBy?: Types.ObjectId;
+  groupId?: Types.ObjectId | null;
+  cdeStage?: CdeFolderStage;
+  workflowStatus?: "WIP_DRAFT" | "SUBMITTED_FOR_REVIEW" | "COORDINATED" | "PUBLISHED" | "ARCHIVED";
+  submittedForReviewAt?: Date | null;
+  submittedForReviewBy?: Types.ObjectId | null;
+  submittedForReviewVersion?: number | null;
+  /** WIP source: last version promoted to Shared via leader action */
+  wipPromotedToSharedVersion?: number | null;
+  /** Shared copy: last revision promoted to Published (Shared→Published) */
+  sharedPromotedToPublishedVersion?: number | null;
+  promotedFromFileId?: Types.ObjectId | null;
+  promotedFromVersion?: number | null;
 
   createdAt: Date;
   updatedAt: Date;
