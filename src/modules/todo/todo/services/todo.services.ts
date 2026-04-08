@@ -5,15 +5,38 @@ import {
   IAssigness,
   IAttachment,
   ITag,
+  IPriority,
+  IType,
 } from "../interfaces/todo.inferfaces";
 import { sendEmail } from "../../../../lib/mailer.lib";
 import { assignTodoTemplate } from "../../../../templates/templateEmail";
 import notificationModel from "../../../notification/schemas/notification.schemas";
 import { getIO } from "../../../../lib/socket.lib";
 import TodoModel from "../schemas/todo.schema";
+import groupModel from "../../../team/schemas/group.schema";
+import groupMemberModel from "../../../team/schemas/group-member.schema";
 import { AppError } from "../../../../utils/AppError";
+import { Type } from "@aws-sdk/client-s3";
 
 export default class TodoService {
+  private async getActorRole(
+    projectId: string | Types.ObjectId,
+    userId: Types.ObjectId | undefined,
+  ): Promise<"ADMIN" | "LEADER" | "MEMBER"> {
+    if (!userId) throw new AppError("Unauthorized", 401);
+    const pm = await projectMemberSchema.findOne({ userId, projectId }).lean();
+    if (!pm)
+      throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    if (String(pm.role).toLowerCase() === "admin") return "ADMIN";
+
+    const groups = await groupModel.find({ projectId }).select("_id").lean();
+    const groupIds = groups.map((g) => g._id);
+    const gm = await groupMemberModel
+      .findOne({ userId, groupId: { $in: groupIds }, role: "GROUP_LEADER" })
+      .lean();
+    return gm ? "LEADER" : "MEMBER";
+  }
+
   // Hàm chung để gửi mail cho những assignees mới
   private async notifyNewAssignees(
     newAssignees: IAssigness[],
@@ -123,35 +146,30 @@ export default class TodoService {
   }
 
   // --- CREATE TODO ---
-  async createTodo(data: {
-    title: string;
-    description?: string;
-    status?: "new" | "in_progress" | "done" | "closed";
-    priority?: "high" | "normal" | "low";
-    completion?: number;
-    assignees?: IAssigness[];
-    type?:
-      | "undefined"
-      | "comment"
-      | "issue"
-      | "request"
-      | "fault"
-      | "inquiry"
-      | "solution"
-      | "remark"
-      | "clash";
-    tags?: ITag[];
-    dueDate?: Date;
-    projectId: string;
-    createdBy: string;
-    items?: {
-      fileUrl: string;
-      modelId: string;
-      expressId: string[];
-    }[];
-    viewState?: any;
-    attachments?: IAttachment[];
-  }): Promise<ITodo> {
+  async createTodo(
+    projectId: string,
+    userId: Types.ObjectId | undefined,
+    data: {
+      title: string;
+      description?: string;
+      status?: string;
+      priority?: IPriority;
+      completion?: number;
+      assignees?: IAssigness[];
+      type?: IType;
+      tags?: ITag[];
+      dueDate?: Date;
+      projectId: string;
+      createdBy: string;
+      items?: {
+        fileUrl: string;
+        modelId: string;
+        expressId: string[];
+      }[];
+      viewState?: any;
+      attachments?: IAttachment[];
+    },
+  ): Promise<ITodo> {
     if (!data.title || !data.projectId || !data.createdBy) {
       throw new AppError("Title, projectId, and createdBy are required", 400);
     }
@@ -168,6 +186,11 @@ export default class TodoService {
       attachments: data.attachments,
     });
 
+    const actorRole = await this.getActorRole(projectId, userId);
+    if (actorRole === "MEMBER") {
+      throw new AppError("Only Admin or Group Leader can create todos.", 403);
+    }
+
     // Gửi mail cho assignees mới (trong trường hợp tạo mới tất cả đều là mới)
     this.notifyNewAssignees(newTodo.assignees, [], newTodo).catch(
       console.error,
@@ -183,7 +206,7 @@ export default class TodoService {
   async updateTodo(
     id: string,
     data: Partial<ITodo>,
-    userId: string,
+    userId: Types.ObjectId | undefined,
   ): Promise<ITodo> {
     const todo = await TodoModel.findById(id);
 
@@ -193,6 +216,34 @@ export default class TodoService {
 
     // Optional: Check if user has permission to update (e.g., creator or assignee)
     // For now, we'll allow updates by any authenticated user
+
+    const actorRole = await this.getActorRole(todo.projectId, userId);
+
+    if (actorRole === "MEMBER") {
+      if (!userId) throw new AppError("Unauthorized", 401);
+      const assignedToMember = (todo.assignees || []).some(
+        (a) => a.assigneeId?.toString() === userId.toString(),
+      );
+      if (!assignedToMember) {
+        throw new AppError(
+          "Members can only update todos assigned to them.",
+          403,
+        );
+      }
+
+      const allowedKeys = new Set(["status", "completion", "modifiedOn"]);
+      const updateKeys = Object.keys(data || {});
+      const hasForbidden = updateKeys.some((k) => !allowedKeys.has(k));
+      if (hasForbidden) {
+        throw new AppError("Members can only update status/completion.", 403);
+      }
+      if (data.status && data.status !== "done") {
+        throw new AppError(
+          "Members can only mark assigned todos as done.",
+          403,
+        );
+      }
+    }
 
     const updatedTodo = await TodoModel.findByIdAndUpdate(
       id,
@@ -225,15 +276,17 @@ export default class TodoService {
   }
 
   // --- DELETE TODO ---
-  async deleteTodo(id: string, userId: string): Promise<boolean> {
+  async deleteTodo(id: string, userId: Types.ObjectId | undefined): Promise<boolean> {
     const todo = await TodoModel.findById(id);
 
     if (!todo) {
       throw new AppError("Todo not found", 404);
     }
 
-    // Optional: Check if user has permission to delete (e.g., creator or admin)
-    // For now, we'll allow deletion by any authenticated user
+    const actorRole = await this.getActorRole(todo.projectId, userId);
+    if (actorRole === "MEMBER") {
+      throw new AppError("Only Admin or Group Leader can delete todos.", 403);
+    }
 
     await TodoModel.findByIdAndDelete(id);
 

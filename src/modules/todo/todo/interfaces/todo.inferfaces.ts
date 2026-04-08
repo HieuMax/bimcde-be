@@ -81,13 +81,13 @@ export interface ITag {
   tagId: Types.ObjectId;
   name: string;
 }
-interface IPriority {
+export interface IPriority {
   priorityId: Types.ObjectId;
   name: string;
   color: string;
 }
 
-interface IType {
+export interface IType {
   typeId: Types.ObjectId;
   name: string;
 }

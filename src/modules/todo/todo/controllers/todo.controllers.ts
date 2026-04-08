@@ -86,7 +86,7 @@ TodoController.post(
       throw new AppError("User ID is required", 400);
     }
 
-    const newTodo = await todoService.createTodo({
+    const newTodo = await todoService.createTodo(projectId, req.userId, {
       title,
       description,
       status,
@@ -140,7 +140,7 @@ TodoController.put(
       throw new AppError("Todo ID is required", 400);
     }
 
-    const userId = req.userId?.toString();
+    const userId = req.userId;
     if (!userId) {
       throw new AppError("User ID is required", 400);
     }
@@ -192,7 +192,7 @@ TodoController.delete(
       throw new AppError("Todo ID is required", 400);
     }
 
-    const userId = req.userId?.toString();
+    const userId = req.userId;
     if (!userId) {
       throw new AppError("User ID is required", 400);
     }
