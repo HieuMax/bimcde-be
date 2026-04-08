@@ -1,11 +1,32 @@
 import { Types } from "mongoose";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
+import projectSchema from "../../project/schemas/project.schema";
 import AccountModel from "../../account/schemas/account.schema";
 import groupModel from "../schemas/group.schema";
 import groupMemberModel from "../schemas/group-member.schema";
-import { IGroupMember } from "../interfaces/group-member.interfaces";
+import FolderModel from "../../folder/schemas/folder.schema";
+import FolderService from "../../folder/services/folder.service";
+import { assertValidFolderName } from "../../folder/utils/folderNameValidation";
+import {
+  isGroupMemberRole,
+  parseCdeWorkflowMode,
+} from "../../../constants/cde-workflow";
+import { ensureCdeRootsInitialized } from "../../folder/services/cde-root-init.service";
 
 export default class TeamService {
+  private async assertProjectAdmin(
+    projectId: Types.ObjectId | string,
+    userId: Types.ObjectId
+  ) {
+    const actor = await projectMemberSchema.findOne({
+      userId,
+      projectId,
+    });
+    if (!actor || String(actor.role).toLowerCase() !== "admin") {
+      throw new Error("Chỉ Admin dự án mới được thực hiện thao tác này.");
+    }
+  }
+
   async getByProjectId(projectId: string, userId: Types.ObjectId | undefined) {
     try {
       if (!userId) {
@@ -20,6 +41,7 @@ export default class TeamService {
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào dự án này.");
       }
+      await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
 
       const projectMembers = await projectMemberSchema.find({ projectId });
 
@@ -107,10 +129,60 @@ export default class TeamService {
       if (existingTag) {
         throw new Error("Group đã tồn tại.");
       }
+
+      const project = await projectSchema.findById(projectId).lean();
+      const mode = parseCdeWorkflowMode(project?.workflowMode) ?? "NORMAL";
+
+      if (mode === "ISO_19650" && member.role !== "admin") {
+        throw new Error(
+          "Chỉ Admin có thể tạo nhóm trong chế độ ISO 19650."
+        );
+      }
+
       const newGroup = await groupModel.create({
         projectId: projectId,
         name: name,
       });
+
+      if (mode === "ISO_19650") {
+        await ensureCdeRootsInitialized(projectId, userId, "ISO_19650");
+
+        const pid = new Types.ObjectId(projectId);
+        const wipRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "WIP",
+          isCdeRoot: true,
+          isDeleted: false,
+        });
+        const sharedRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "SHARED",
+          isCdeRoot: true,
+          isDeleted: false,
+        });
+        if (!wipRoot || !sharedRoot) {
+          throw new Error("Không tìm thấy thư mục CDE WIP/Shared.");
+        }
+
+        const folderService = new FolderService();
+        const safeName = assertValidFolderName(name);
+        await folderService.createFolder({
+          name: safeName,
+          projectId: pid,
+          parentId: wipRoot._id,
+          createdBy: userId,
+          groupId: newGroup._id,
+        });
+        await folderService.createFolder({
+          name: safeName,
+          projectId: pid,
+          parentId: sharedRoot._id,
+          createdBy: userId,
+          groupId: newGroup._id,
+        });
+      }
 
       return newGroup;
     } catch (err) {
@@ -137,6 +209,7 @@ export default class TeamService {
     if (!member) {
       throw new Error("Bạn không có quyền truy cập vào nhóm này.");
     }
+    await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
     const members = await groupMemberModel
       .find({ groupId: groupId })
       .populate("userId", "fullName email")
@@ -154,15 +227,15 @@ export default class TeamService {
         (pm: any) => pm.userId.toString() === member.userId._id.toString()
       );
 
-      // Gắn thêm thông tin role và lastAccessed vào member
       return {
         ...member,
         fullName: member.userId.fullName,
         email: member.userId.email,
-        userId: member.userId._id, // Giữ lại _id của userId
-        role: projectMember?.role, // Gắn role từ ProjectMember
+        userId: member.userId._id,
+        role: projectMember?.role,
+        groupMemberRole: member.role,
         projectId: projectId,
-        lastAccessed: projectMember?.lastAccessed, // Gắn lastAccessed từ ProjectMember
+        lastAccessed: projectMember?.lastAccessed,
       };
     });
 
@@ -192,13 +265,40 @@ export default class TeamService {
       throw new Error("Bạn không có quyền truy cập vào nhóm này.");
     }
 
-    const groupMembersToAdd = data?.userIds.map((user: IGroupMember) => ({
-      groupId: groupId,
-      userId: user,
-      invitedAt: new Date(),
-    }));
+    const rows: Array<{
+      groupId: string;
+      userId: Types.ObjectId | string;
+      role: "GROUP_LEADER" | "GROUP_MEMBER";
+      invitedAt: Date;
+    }> = [];
 
-    const result = await groupMemberModel.insertMany(groupMembersToAdd);
+    if (Array.isArray(data?.members) && data.members.length > 0) {
+      for (const m of data.members) {
+        const uid = m.userId ?? m._id;
+        if (!uid) continue;
+        rows.push({
+          groupId,
+          userId: uid,
+          role: isGroupMemberRole(m.role) ? m.role : "GROUP_MEMBER",
+          invitedAt: new Date(),
+        });
+      }
+    } else if (Array.isArray(data?.userIds) && data.userIds.length > 0) {
+      for (const uid of data.userIds) {
+        rows.push({
+          groupId,
+          userId: uid,
+          role: "GROUP_MEMBER",
+          invitedAt: new Date(),
+        });
+      }
+    }
+
+    if (rows.length === 0) {
+      throw new Error("Thiếu danh sách thành viên (userIds hoặc members).");
+    }
+
+    const result = await groupMemberModel.insertMany(rows);
 
     return result;
   }
@@ -226,6 +326,7 @@ export default class TeamService {
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào nhóm này.");
       }
+      await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
 
       const updatedGroup = await groupModel.findByIdAndUpdate(
         groupId,
@@ -257,6 +358,7 @@ export default class TeamService {
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào nhóm này.");
       }
+      await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
       await groupMemberModel.deleteMany({ groupId: groupId });
       await groupModel.findByIdAndDelete(groupId);
 
@@ -264,6 +366,57 @@ export default class TeamService {
     } catch (err) {
       throw err;
     }
+  }
+
+  /**
+   * Admin only: set GROUP_LEADER vs GROUP_MEMBER for a user in this group (ISO CDE).
+   */
+  async updateGroupMemberRole(
+    groupId: string,
+    targetUserId: string,
+    newRole: unknown,
+    actingUserId: Types.ObjectId | undefined
+  ) {
+    if (!actingUserId) {
+      throw new Error("User không hợp lệ.");
+    }
+    if (!Types.ObjectId.isValid(targetUserId)) {
+      throw new Error("userId không hợp lệ.");
+    }
+    const roleParsed = isGroupMemberRole(newRole) ? newRole : null;
+    if (!roleParsed) {
+      throw new Error("role phải là GROUP_LEADER hoặc GROUP_MEMBER.");
+    }
+
+    const group = await groupModel.findById(groupId);
+    if (!group) {
+      throw new Error("Group không tồn tại.");
+    }
+    const projectId = group.projectId;
+
+    const actor = await projectMemberSchema.findOne({
+      userId: actingUserId,
+      projectId,
+    });
+    if (!actor || String(actor.role).toLowerCase() !== "admin") {
+      throw new Error(
+        "Chỉ Admin dự án mới được phân quyền Leader/Member trong nhóm."
+      );
+    }
+
+    const updated = await groupMemberModel.findOneAndUpdate(
+      {
+        groupId: new Types.ObjectId(groupId),
+        userId: new Types.ObjectId(targetUserId),
+      },
+      { $set: { role: roleParsed } },
+      { new: true }
+    );
+    if (!updated) {
+      throw new Error("Thành viên không thuộc nhóm này.");
+    }
+
+    return updated;
   }
 
   async removeMemberFromGroup(
@@ -288,6 +441,7 @@ export default class TeamService {
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào nhóm này.");
       }
+      await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
       await groupMemberModel.deleteOne({ groupId: groupId, userId: memberId });
 
       return { message: "Xóa thành viên khỏi group thành công." };
@@ -303,6 +457,7 @@ export default class TeamService {
     if (!userAccess) {
       throw new Error("User không hợp lệ.");
     }
+    const actorId = userAccess;
 
     const groupIds = await groupMemberModel
       .find({ userId })
@@ -321,25 +476,34 @@ export default class TeamService {
     if (!userId) {
       throw new Error("User không hợp lệ.");
     }
+    if (!userAccess) {
+      throw new Error("User không hợp lệ.");
+    }
+    const actorId: Types.ObjectId = userAccess;
 
     const members = await projectMemberSchema.findOne({ userId: userId });
     if (!members) {
       throw new Error("Thành viên không hợp lệ.");
     }
     const projectId = members.projectId;
+    if (!projectId) {
+      throw new Error("Không xác định được project của thành viên.");
+    }
 
     const member = await projectMemberSchema.findOne({
-      userId: userAccess,
+      userId: actorId,
       projectId: projectId,
     });
     if (!member) {
       throw new Error("Bạn không có quyền truy cập vào nhóm này.");
     }
+    await this.assertProjectAdmin(projectId, actorId);
 
-    const groupMemberships = data?.groupIds.map((groupId: string) => ({
+    const groupMemberships = data?.groupIds.map((gid: string) => ({
       userId: userId,
-      groupId: groupId,
-      inviteAt: new Date(),
+      groupId: gid,
+      invitedAt: new Date(),
+      role: "GROUP_MEMBER" as const,
     }));
 
     const result = await groupMemberModel.insertMany(groupMemberships);

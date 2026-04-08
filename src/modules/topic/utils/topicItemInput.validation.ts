@@ -23,6 +23,7 @@ const TOPIC_STATUSES = [
   "In Progress",
   "Waiting",
   "Done",
+  "Resolved",
   "Closed",
 ] as const;
 

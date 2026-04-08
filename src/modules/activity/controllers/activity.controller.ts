@@ -7,6 +7,34 @@ import { authenticate } from "../../../middlewares/authMiddlewares";
 const ActivityController = express.Router();
 const activityService = new ActivityService();
 
+// GET /api/activities/item?projectId=...&fileId=... OR &folderId=...
+ActivityController.get(
+  "/item",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId, fileId, folderId, page, limit, lightweight } = req.query;
+
+    if (!projectId) {
+      throw new AppError("Project ID is required", 400);
+    }
+    const hasFile = !!fileId;
+    const hasFolder = !!folderId;
+    if (hasFile === hasFolder) {
+      throw new AppError("Provide exactly one of fileId or folderId", 400);
+    }
+
+    const result = await activityService.getActivitiesForItem(projectId as string, {
+      fileId: fileId as string | undefined,
+      folderId: folderId as string | undefined,
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 20,
+      lightweight: lightweight === "true" || lightweight === "1",
+    });
+
+    res.json(result);
+  }),
+);
+
 // GET /api/activities?projectId=...
 // Filters: &userId=...&actionGroup=...&startDate=...&endDate=...&page=1&limit=20
 ActivityController.get(

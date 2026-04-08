@@ -49,9 +49,17 @@ const TopicItemSchema = new Schema<ITopicItem>(
       ],
       required: true,
     },
+    /** Canonical workflow — see constants/topic-todo-workflow.ts */
     status: {
       type: String,
-      enum: ["New", "In Progress", "Waiting", "Done", "Closed"],
+      enum: [
+        "New",
+        "In Progress",
+        "Waiting",
+        "Done",
+        "Resolved",
+        "Closed",
+      ],
       required: true,
       default: "New",
     },
@@ -70,11 +78,28 @@ const TopicItemSchema = new Schema<ITopicItem>(
     stats: { type: TopicStatsSchema, default: {} },
 
     attachments: { type: [AttachmentSchema], default: [] },
+
+    /** Primary file this topic is about (ISO gate + notifications); optional for legacy rows */
+    fileId: {
+      type: Schema.Types.ObjectId,
+      ref: "File",
+      default: null,
+      index: true,
+    },
+    /** Optional: which file version the issue referred to */
+    linkedFileVersion: { type: Number, default: null },
+    /** Topic creator — for notifications when file version changes */
+    authorUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
   },
   { timestamps: true },
 );
 
 TopicItemSchema.index({ projectId: 1, updatedAt: -1 });
+TopicItemSchema.index({ projectId: 1, fileId: 1 }, { sparse: true });
 
 const TopicItemModel = mongoose.model<ITopicItem>("TopicItem", TopicItemSchema);
 export default TopicItemModel;

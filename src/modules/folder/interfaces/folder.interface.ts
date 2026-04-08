@@ -1,4 +1,5 @@
 import { Document, Types } from "mongoose";
+import type { CdeFolderStage } from "../../../constants/cde-workflow";
 
 export interface IFolderVersion {
   version: number;
@@ -21,6 +22,10 @@ export interface IFolder extends Document {
   description?: string;
   tags: string[];
   totalSize: number;
+  cdeStage?: CdeFolderStage;
+  isCdeRoot?: boolean;
+  isCdeRootLocked?: boolean;
+  groupId?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
