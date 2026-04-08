@@ -4,9 +4,8 @@ export interface ITodo extends Document {
   title: string;
   description?: string;
   
-  // Enum phải khớp với Schema và FE
-  status: "Open" | "In Progress" | "Done" | "On Hold";
-  priority: "Low" | "Normal" | "High" | "Urgent";
+  status: "Open" | "In Progress" | "Done" | "Closed";
+  priority: "Low" | "Normal" | "High" | "Critical";
   type: string; // Issue, Question, Defect...
   
   dueDate?: Date;
@@ -17,6 +16,7 @@ export interface ITodo extends Document {
   // Quan hệ
   projectId: string;
   fileId: string;
+  topicId?: Types.ObjectId | null;
   viewId?: string;
 
   position?: {

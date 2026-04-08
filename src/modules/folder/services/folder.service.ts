@@ -1,12 +1,22 @@
 import FolderModel from "../schemas/folder.schema";
 import FileModel from "../../file/schemas/file.schema";
+import projectSchema from "../../project/schemas/project.schema";
 import { IFolder } from "../interfaces/folder.interface";
 import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
+import { parseCdeWorkflowMode } from "../../../constants/cde-workflow";
 import {
   assertFolderDepthWithinLimit,
   assertValidFolderName,
 } from "../utils/folderNameValidation";
+import CdeAccessService from "../../permission/services/cde-access.service";
+
+export type CreateFolderOptions = {
+  /** System use only: create the four CDE roots under parentId null in ISO projects */
+  allowIsoRootCreation?: boolean;
+};
+
+const cdeAccess = new CdeAccessService();
 
 export default class FolderService {
   /* =========================
@@ -57,8 +67,30 @@ export default class FolderService {
   /* =========================
    * CREATE FOLDER
    * ========================= */
-  async createFolder(data: Partial<IFolder>): Promise<IFolder> {
+  async createFolder(
+    data: Partial<IFolder>,
+    options?: CreateFolderOptions
+  ): Promise<IFolder> {
     const trimmedName = assertValidFolderName(data.name);
+
+    const projectIdStr =
+      data.projectId instanceof Types.ObjectId
+        ? data.projectId.toString()
+        : String(data.projectId);
+    const parentIsRoot =
+      data.parentId === null || data.parentId === undefined;
+
+    if (parentIsRoot && !options?.allowIsoRootCreation) {
+      const project = await projectSchema.findById(projectIdStr).lean();
+      if (!project) throw new AppError("Project not found", 404);
+      const mode = parseCdeWorkflowMode(project.workflowMode) ?? "NORMAL";
+      if (mode === "ISO_19650") {
+        throw new AppError(
+          "Cannot create folders at project root in ISO 19650 mode",
+          403
+        );
+      }
+    }
 
     let path: string | null = null;
     let parentFolder: (IFolder & { path?: string | null }) | null = null;
@@ -75,6 +107,15 @@ export default class FolderService {
     }
 
     assertFolderDepthWithinLimit(parentFolder);
+
+    if (data.parentId && data.createdBy) {
+      await cdeAccess.assertFolderAccess(
+        projectIdStr,
+        new Types.ObjectId(data.createdBy),
+        data.parentId.toString(),
+        "create_child"
+      );
+    }
 
     const duplicate = await FolderModel.findOne({
       projectId: data.projectId,
@@ -119,6 +160,17 @@ export default class FolderService {
     });
     if (!folder) throw new AppError("Folder not found", 404);
 
+    if (folder.isCdeRoot && folder.isCdeRootLocked) {
+      throw new AppError("This CDE root folder cannot be renamed", 403);
+    }
+
+    await cdeAccess.assertFolderAccess(
+      folder.projectId.toString(),
+      new Types.ObjectId(userId),
+      folderId,
+      "rename"
+    );
+
     if (folder.name === trimmedName) return folder;
 
     const duplicate = await FolderModel.findOne({
@@ -151,6 +203,17 @@ export default class FolderService {
       isDeleted: false,
     });
     if (!folder) throw new AppError("Folder not found", 404);
+
+    if (folder.isCdeRoot && folder.isCdeRootLocked) {
+      throw new AppError("This CDE root folder cannot be deleted", 403);
+    }
+
+    await cdeAccess.assertFolderAccess(
+      folder.projectId.toString(),
+      new Types.ObjectId(userId),
+      folderId,
+      "delete"
+    );
 
     // Find all descendants by path prefix
     const prefix = folder.path
@@ -199,6 +262,17 @@ export default class FolderService {
     });
     if (!folder) throw new AppError("Folder not found", 404);
 
+    if (folder.isCdeRoot && folder.isCdeRootLocked) {
+      throw new AppError("This CDE root folder cannot be moved", 403);
+    }
+
+    await cdeAccess.assertFolderAccess(
+      folder.projectId.toString(),
+      new Types.ObjectId(userId),
+      folderId,
+      "move"
+    );
+
     let newPath: string | null = null;
     let destParentIdObj: Types.ObjectId | null = null;
 
@@ -228,10 +302,52 @@ export default class FolderService {
         );
       }
 
+      await cdeAccess.assertFolderAccess(
+        folder.projectId.toString(),
+        new Types.ObjectId(userId),
+        destinationParentId,
+        "create_child"
+      );
+
+      await cdeAccess.assertIsoArchivedMoveAllowed(
+        folder.projectId.toString(),
+        new Types.ObjectId(userId),
+        [folder._id.toString()],
+        destinationParentId,
+      );
+
+      await cdeAccess.assertIsoMoveDestinationSameGroup(
+        folder.projectId.toString(),
+        [folder._id.toString()],
+        destinationParentId,
+      );
+
       newPath = destFolder.path
         ? `${destFolder.path},${destFolder._id}`
         : `${destFolder._id}`;
       destParentIdObj = destFolder._id;
+    } else {
+      const proj = await projectSchema
+        .findById(folder.projectId)
+        .select("workflowMode")
+        .lean();
+      if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
+        const ctx = await cdeAccess.loadIsoContext(
+          folder.projectId.toString(),
+          new Types.ObjectId(userId)
+        );
+        if (!ctx.isProjectAdmin) {
+          throw new AppError(
+            "Cannot move folder to project root in ISO 19650 mode",
+            403
+          );
+        }
+      }
+      await cdeAccess.assertIsoMoveDestinationSameGroup(
+        folder.projectId.toString(),
+        [folder._id.toString()],
+        null,
+      );
     }
 
     const duplicate = await FolderModel.findOne({

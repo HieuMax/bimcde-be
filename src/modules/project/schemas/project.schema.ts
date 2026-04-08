@@ -1,6 +1,7 @@
 // bimcde-be\src\modules\project\schemas\project.schema.ts
 import { model, Schema } from "mongoose";
 import { IProject } from "../interfaces/project.interfaces";
+import { CDE_WORKFLOW_MODES } from "../../../constants/cde-workflow";
 
 const projectSchema = new Schema<IProject>(
   {
@@ -49,6 +50,18 @@ const projectSchema = new Schema<IProject>(
 
     thumbnail: {
       type: String,
+    },
+
+    /** ISO 19650 (strict CDE) vs flexible folder ACL workflow */
+    workflowMode: {
+      type: String,
+      enum: CDE_WORKFLOW_MODES,
+      default: "NORMAL",
+    },
+    /** Set true after default WIP/Shared/Published/Archived roots exist */
+    cdeRootsInitialized: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

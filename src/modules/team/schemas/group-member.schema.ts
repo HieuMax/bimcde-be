@@ -1,5 +1,6 @@
 import { Types, model, Schema } from "mongoose";
-import { IGroupMember } from "../interfaces/group-member.interfaces"; // Ensure correct interface import
+import { IGroupMember } from "../interfaces/group-member.interfaces";
+import { GROUP_MEMBER_ROLES } from "../../../constants/cde-workflow";
 
 const groupMemberSchema = new Schema<IGroupMember>(
   {
@@ -10,8 +11,14 @@ const groupMemberSchema = new Schema<IGroupMember>(
     },
     userId: {
       type: Schema.Types.ObjectId,
-      ref: "Account", 
+      ref: "Account",
       required: true,
+    },
+    /** ISO CDE: leader vs member within this group */
+    role: {
+      type: String,
+      enum: GROUP_MEMBER_ROLES,
+      default: "GROUP_MEMBER",
     },
     invitedAt: {
       type: Date,
@@ -19,11 +26,12 @@ const groupMemberSchema = new Schema<IGroupMember>(
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
   }
 );
 
-// Define the model with a unique name "GroupMember" to avoid conflict
+groupMemberSchema.index({ groupId: 1, userId: 1 }, { unique: true });
+
 const groupMemberModel = model<IGroupMember>("GroupMember", groupMemberSchema);
 
 export default groupMemberModel;

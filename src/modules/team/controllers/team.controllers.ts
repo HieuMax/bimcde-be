@@ -75,6 +75,32 @@ TeamController.post(
   }
 );
 
+TeamController.put(
+  "/updateGroupMemberRole/:groupId",
+  authenticate,
+  async (req, res) => {
+    try {
+      const result = await teamService.updateGroupMemberRole(
+        req.params.groupId,
+        req.body.userId,
+        req.body.role,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        message: "Cập nhật vai trò trong nhóm thành công.",
+        result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: "Xảy ra lỗi khi cập nhật vai trò trong nhóm.",
+        error: error.message,
+      });
+    }
+  }
+);
+
 TeamController.post(
   "/addPeopleToGroup/:groupId",
   authenticate,

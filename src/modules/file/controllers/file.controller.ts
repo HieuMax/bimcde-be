@@ -7,6 +7,7 @@ import os from "os";
 import { v4 as uuidv4 } from "uuid";
 import { env } from "../../../env";
 import FileService from "../services/file.service";
+import FilePromoteService from "../services/file-promote.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../constants/projectStorage";
 
 import { Types } from "mongoose";
+import { parsePromoteTargetStage } from "../../../constants/cde-workflow";
 import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import Middleware
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ActivityService from "../../activity/services/activity.service";
@@ -30,6 +32,7 @@ import ActivityService from "../../activity/services/activity.service";
 const PublicFileController = express.Router();
 const FileController = express.Router();
 const fileService = new FileService();
+const filePromoteService = new FilePromoteService();
 const activityService = new ActivityService();
 
 const UPLOAD_TMP = path.join(os.tmpdir(), "bimcde-uploads");
@@ -102,6 +105,7 @@ PublicFileController.get(
  */
 FileController.post(
   "/upload",
+  authenticate,
   handleMulterArray,
   asyncHandler(async (req: Request, res: Response) => {
     const files = req.files as Express.Multer.File[];
@@ -110,10 +114,11 @@ FileController.post(
       throw new AppError("No files uploaded", 400);
     }
 
-    const { projectId, folderId, userId } = req.body;
+    const { projectId, folderId } = req.body;
+    const userId = req.userId?.toString();
     if (!projectId || !userId) {
       for (const f of files) await fs.unlink(f.path).catch(() => {});
-      throw new AppError("projectId and userId are required", 400);
+      throw new AppError("projectId and authenticated user are required", 400);
     }
 
     const conflictStrategy = parseConflictStrategy(req.body.conflictStrategy);
@@ -168,6 +173,77 @@ FileController.post(
 );
 
 /**
+ * POST /api/files/:id/promote
+ * Body: { targetStage: "SHARED" | "PUBLISHED", destinationFolderId?: string }
+ * Shared→Published: optional destinationFolderId (folder under 3. Published).
+ * ISO 19650: copies file (same storage) into destination stage; source unchanged.
+ * To move into Archived, use folder/file move APIs to a folder under 4. Archived.
+ */
+FileController.post(
+  "/:id/promote",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { targetStage, destinationFolderId } = req.body;
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid file id", 400);
+    }
+    const stage = parsePromoteTargetStage(targetStage);
+    if (!stage) {
+      throw new AppError(
+        "targetStage is required and must be SHARED or PUBLISHED",
+        400,
+      );
+    }
+
+    const destFolder =
+      typeof destinationFolderId === "string" && destinationFolderId.length > 0
+        ? destinationFolderId
+        : undefined;
+
+    const result = await filePromoteService.promoteFile(
+      id,
+      req.userId,
+      stage,
+      {
+        fullName: (req.user as { fullName?: string })?.fullName ?? "User",
+        email: (req.user as { email?: string })?.email,
+      },
+      destFolder
+    );
+    res.status(201).json({
+      success: true,
+      message: "File promoted (copy created in destination)",
+      ...result,
+    });
+  }),
+);
+
+/**
+ * POST /api/files/:id/submit-review
+ * ISO 19650: Group Member in own WIP group submits owned file for review.
+ */
+FileController.post(
+  "/:id/submit-review",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid file id", 400);
+    }
+
+    const updated = await filePromoteService.submitForReview(id, req.userId);
+    res.status(200).json({
+      success: true,
+      message: "File submitted for review",
+      result: updated,
+    });
+  }),
+);
+
+/**
  * GET /api/files?folderId=...
  * Query: { folderId }s)
  * Desc: Get files in a specific folder.
@@ -198,9 +274,12 @@ FileController.get(
  */
 FileController.put(
   "/:id/move",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { destinationFolderId, userId } = req.body;
+    const { destinationFolderId } = req.body;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     const result = await fileService.moveFile(id, destinationFolderId, userId);
     res.json(result);
@@ -214,8 +293,11 @@ FileController.put(
  */
 FileController.post(
   "/move-bulk",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { fileIds, destinationFolderId, userId } = req.body;
+    const { fileIds, destinationFolderId } = req.body;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
       throw new AppError("fileIds must be a non-empty array", 400);
@@ -242,9 +324,12 @@ FileController.post(
  */
 FileController.post(
   "/:id/lock",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { action, userId } = req.body;
+    const { action } = req.body;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     if (!["LOCK", "UNLOCK"].includes(action)) {
       throw new AppError("Invalid action. Must be LOCK or UNLOCK", 400);
@@ -270,7 +355,8 @@ FileController.delete(
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const userId = req.userId?.toString() || req.body.userId;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     const deletedFile = await fileService.deleteFile(id, userId);
     res.json({
@@ -288,8 +374,11 @@ FileController.delete(
  */
 FileController.post(
   "/bulk-lock",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { folderId, action, userId } = req.body;
+    const { folderId, action } = req.body;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     if (!["LOCK", "UNLOCK"].includes(action)) {
       throw new AppError("Invalid action", 400);
@@ -307,14 +396,20 @@ FileController.post(
  */
 FileController.get(
   "/download",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id, type, version } = req.query;
     if (!id || !type) throw new AppError("Missing id or type", 400);
 
     if (type === "file") {
-      // Chuyển version sang number nếu có
       const versionNum = version ? parseInt(version as string) : undefined;
-      await fileService.downloadFile(id as string, res, versionNum);
+      const uid = req.userId?.toString();
+      await fileService.downloadFile(
+        id as string,
+        res,
+        versionNum,
+        uid
+      );
     } else if (type === "folder") {
       await fileService.downloadFolder(id as string, res);
     } else {
@@ -333,7 +428,7 @@ FileController.put(
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { name, userId } = req.body;
+    const { name } = req.body;
 
     if (!name) throw new AppError("New name is required", 400);
 
@@ -342,7 +437,9 @@ FileController.put(
     const oldName = oldFile.name;
 
     // 2. Thực hiện Rename
-    const updatedFile = await fileService.renameFile(id, name, userId);
+    const uid = req.userId?.toString();
+    if (!uid) throw new AppError("Unauthorized", 401);
+    const updatedFile = await fileService.renameFile(id, name, uid);
 
     // 3. Ghi Log thủ công có MetaData
     await activityService.logActivity({
@@ -377,6 +474,7 @@ FileController.put(
  */
 FileController.post(
   "/download-bulk",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { items, projectId } = req.body;
 
@@ -395,6 +493,7 @@ FileController.post(
  */
 FileController.post(
   "/bulk-tags",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { fileIds, tagIds } = req.body;
 
@@ -422,7 +521,8 @@ FileController.post(
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const userId = req.userId?.toString() || req.body.userId;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
     const restoredFile = await fileService.restoreFile(id, userId);
     res.json({
       message: "File restored successfully",
@@ -462,6 +562,27 @@ FileController.get(
     if (!projectId) throw new AppError("projectId is required", 400);
     const stats = await fileService.getFileTypeStats(projectId as string);
     res.json(stats);
+  }),
+);
+
+/**
+ * GET /api/files/:id/publish-readiness
+ * ISO: automatic checklist before Shared→Published (todos, topics, version).
+ */
+FileController.get(
+  "/:id/publish-readiness",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid file id", 400);
+    }
+    const result = await filePromoteService.getPublishReadiness(
+      id,
+      req.userId,
+    );
+    res.json(result);
   }),
 );
 
