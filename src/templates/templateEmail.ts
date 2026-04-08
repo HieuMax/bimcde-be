@@ -14,8 +14,6 @@ export interface InviteUserEmailData {
   link: string;
 }
 
-
-
 /* ================== TEMPLATES ================== */
 
 // 1. Assign Todo
@@ -68,14 +66,16 @@ export const inviteUserTemplate = (data: InviteUserEmailData): string => {
 
 export const resetPasswordTemplate = (resetLink: string): string => {
   const content = `
-     <div style="font-family: Arial">
-    <h3>Reset Password</h3>
-    <p>Bạn đã yêu cầu reset mật khẩu</p>
+    <div style="font-family: Arial">
+      <h3>Reset Password</h3>
+      <p>You have requested to reset your password.</p>
+
       <p style="text-align:center;margin:30px 0;">
-      ${button(resetLink, "Reset Password")}
+        ${button(resetLink, "Reset Password")}
       </p>
-    <p>Link hết hạn sau 15 phút</p>
-  </div>
+
+      <p>This link will expire in 15 minutes.</p>
+    </div>
 
     ${footerText()}
   `;

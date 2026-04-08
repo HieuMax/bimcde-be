@@ -1,7 +1,7 @@
 import { getIO } from "../../../lib/socket.lib";
 import AccountModel from "../../account/schemas/account.schema";
 import { INotification } from "../interfaces/notification.interfaces";
-import notificationModel from "../schemas/comment.schemas";
+import notificationModel from "../schemas/notification.schemas";
 
 export default class NotificationService {
   async getAllNotification(userId: string) {
