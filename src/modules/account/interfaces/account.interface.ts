@@ -1,4 +1,3 @@
-
 export interface IAccount {
   fullName: string;
   email: string;
@@ -7,6 +6,7 @@ export interface IAccount {
   phone?: string;
   createdAt: Date;
   updatedAt: Date;
+  resetPasswordToken?: string;
+  resetPasswordExpire?: Date;
   // more....
 }
-

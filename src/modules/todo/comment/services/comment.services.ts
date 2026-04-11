@@ -1,8 +1,7 @@
-import { Types } from "mongoose";
-import CommentModel from "../../../comment/schemas/comment.schema";
 import todoModel from "../../todo/schemas/todo.schema";
 import { ICommentTodo } from "../interfaces/comment.interfaces";
 import commentTodoModel from "../schemas/comment.schemas";
+import { sendEmail } from "../../../../lib/mailer.lib";
 
 export default class TodoCommentService {
   async getComment(todoId: string) {
@@ -19,6 +18,7 @@ export default class TodoCommentService {
     const result = await commentTodoModel.create({
       ...data,
     });
+
     return result;
   }
 

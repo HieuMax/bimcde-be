@@ -6,6 +6,9 @@ import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 const bodyParser = require("body-parser");
 import { startCleanupJob } from "./modules/system/services/cleanup.service";
+import http from "http";
+import { initSocket } from "./lib/socket.lib";
+import { AppError } from "./utils/AppError";
 
 const app = express();
 
@@ -36,14 +39,34 @@ const bootstrap = async () => {
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    })
+    }),
   );
 
   app.use("/api", apiRouter);
+
+  //#region Init server + socket =====
+  const server = http.createServer(app);
+  initSocket(server);
+  //#endregion
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json({ message: err.message });
+      }
+      console.error("[API Error]", err);
+      return res.status(500).json({ message: "Internal server error" });
+    },
+  );
+
   logEnv();
   connectDB();
   startCleanupJob();
-  app.listen(env.PORT, () => {
+  server.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
     console.log(`API URL: ${env.APP_URL}`);
   });

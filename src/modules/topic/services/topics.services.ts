@@ -5,11 +5,48 @@ import {
   TopicPriority,
 } from "../schemas/topics.schema";
 import TopicItemModel from "../schemas/topic-item.schema";
-import { ITopicItem } from "../interfaces/topic-item.interface";
 import { ITopicData } from "../interfaces/topics.interface";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
+import groupModel from "../../team/schemas/group.schema";
+import groupMemberModel from "../../team/schemas/group-member.schema";
+import { AppError } from "../../../utils/AppError";
+import {
+  assertTagsInputWithinLimits,
+  assertValidTopicTitle,
+  parseOptionalTopicDueDate,
+  parseTopicPriority,
+  parseTopicStatus,
+  parseTopicType,
+  sanitizeTopicAssignee,
+  sanitizeTopicDescription,
+  sanitizeTopicTags,
+  sanitizeTopicTitle,
+} from "../utils/topicItemInput.validation";
+import {
+  countNonTerminalTodosForTopic,
+  isTopicResolutionStatus,
+} from "../utils/topic-todo-collaboration.helpers";
+
+const TOPIC_ATTACHMENTS_MAX = 50;
 
 export default class TopicsService {
+  private async getActorRole(
+    projectId: string | Types.ObjectId,
+    userId: Types.ObjectId | undefined
+  ): Promise<"ADMIN" | "LEADER" | "MEMBER"> {
+    if (!userId) throw new AppError("Unauthorized", 401);
+    const member = await projectMemberSchema.findOne({ userId, projectId }).lean();
+    if (!member) throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    if (String(member.role).toLowerCase() === "admin") return "ADMIN";
+
+    const groups = await groupModel.find({ projectId }).select("_id").lean();
+    const groupIds = groups.map((g) => g._id);
+    const gm = await groupMemberModel
+      .findOne({ userId, groupId: { $in: groupIds }, role: "GROUP_LEADER" })
+      .lean();
+    return gm ? "LEADER" : "MEMBER";
+  }
+
   // Cập nhật Topic cho dự án
   async updateTopic(
     userId: Types.ObjectId | undefined,
@@ -24,6 +61,9 @@ export default class TopicsService {
       });
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào dự án này.");
+      }
+      if (String(member.role).toLowerCase() !== "admin") {
+        throw new AppError("Only Admin can update topic settings.", 403);
       }
 
       const { topicTypes, topicStatuses, topicPriorities } = updateData;
@@ -266,32 +306,57 @@ export default class TopicsService {
       tags?: string[];
       dueDate?: Date;
       authorName?: string;
+      /** Primary file this topic is about (recommended for ISO gate) */
+      fileId?: string;
+      linkedFileVersion?: number;
     },
   ) {
-    const member = await projectMemberSchema.findOne({
-      userId,
-      projectId,
-    });
-    if (!member) {
-      throw new Error("Bạn không có quyền truy cập vào dự án này.");
+    const actorRole = await this.getActorRole(projectId, userId);
+    if (actorRole === "MEMBER") {
+      throw new AppError("Only Admin or Group Leader can create topics.", 403);
     }
 
     const count = await TopicItemModel.countDocuments({ projectId });
     const code = `THEBU-${count + 1}`;
     const now = new Date();
 
+    const safeTitle = sanitizeTopicTitle(payload.title);
+    assertValidTopicTitle(safeTitle);
+    assertTagsInputWithinLimits(payload.tags);
+    const safeTags = sanitizeTopicTags(payload.tags);
+    const safeDescription = sanitizeTopicDescription(payload.description ?? "");
+    const safeAssignee = sanitizeTopicAssignee(payload.assignee ?? "");
+    const type = parseTopicType(payload.type ?? "Undefined");
+    const status = parseTopicStatus(payload.status ?? "New");
+    const priority = parseTopicPriority(payload.priority ?? "Normal");
+    const dueDate = parseOptionalTopicDueDate(payload.dueDate);
+    const due = dueDate === undefined ? null : dueDate;
+
+    const fileId =
+      payload.fileId && Types.ObjectId.isValid(payload.fileId)
+        ? new Types.ObjectId(payload.fileId)
+        : null;
+    const linkedFileVersion =
+      typeof payload.linkedFileVersion === "number" &&
+      !Number.isNaN(payload.linkedFileVersion)
+        ? payload.linkedFileVersion
+        : null;
+
     const doc = await TopicItemModel.create({
       projectId: new Types.ObjectId(projectId),
       code,
-      title: payload.title?.trim() || "Untitled",
-      description: payload.description ?? "",
-      assignee: payload.assignee ?? "",
-      type: payload.type ?? "Undefined",
-      status: payload.status ?? "New",
-      priority: payload.priority ?? "Normal",
-      tags: Array.isArray(payload.tags) ? payload.tags : [],
-      dueDate: payload.dueDate ?? null,
+      title: safeTitle,
+      description: safeDescription,
+      assignee: safeAssignee,
+      type,
+      status,
+      priority,
+      tags: safeTags,
+      dueDate: due,
       authorName: payload.authorName ?? "Unknown",
+      authorUserId: userId ?? null,
+      fileId,
+      linkedFileVersion,
       thumbnailUrl: "",
       stats: { comments: 0, viewpoints: 0, attachments: 0 },
       attachments: [],
@@ -319,33 +384,60 @@ export default class TopicsService {
     const topicItem = await TopicItemModel.findById(topicItemId);
     if (!topicItem) throw new Error("Topic item not found");
 
-    const member = await projectMemberSchema.findOne({
-      userId,
-      projectId: topicItem.projectId,
-    });
-    if (!member) {
-      throw new Error("Bạn không có quyền truy cập vào dự án này.");
+    const actorRole = await this.getActorRole(topicItem.projectId.toString(), userId);
+
+    if (payload.status !== undefined) {
+      const nextStatus = parseTopicStatus(payload.status);
+      if (isTopicResolutionStatus(nextStatus)) {
+        const openTodos = await countNonTerminalTodosForTopic(topicItemId);
+        if (openTodos > 0) {
+          throw new AppError(
+            "Cannot resolve or close this topic while linked todos are still open.",
+            409,
+          );
+        }
+      }
+      if (nextStatus === "Closed" && actorRole !== "ADMIN") {
+        throw new AppError("Only Admin can close a topic.", 403);
+      }
+      if (
+        (nextStatus === "Done" || nextStatus === "Resolved") &&
+        actorRole === "MEMBER"
+      ) {
+        throw new AppError(
+          "Only Group Leader or Admin can resolve a topic.",
+          403,
+        );
+      }
+      topicItem.status = nextStatus;
+      delete payload.status;
     }
 
-    if (payload.title !== undefined)
-      topicItem.title = payload.title.trim() || topicItem.title;
-    if (payload.description !== undefined)
-      topicItem.description = payload.description ?? topicItem.description;
-    if (payload.assignee !== undefined)
-      topicItem.assignee = payload.assignee ?? "";
-    if (payload.type !== undefined)
-      topicItem.type = payload.type as ITopicItem["type"];
-    if (payload.status !== undefined)
-      topicItem.status = payload.status as ITopicItem["status"];
-    if (payload.priority !== undefined)
-      topicItem.priority = payload.priority as ITopicItem["priority"];
-    if (payload.tags !== undefined)
-      topicItem.tags = Array.isArray(payload.tags) ? payload.tags : topicItem.tags;
-    if (payload.dueDate !== undefined)
-      topicItem.dueDate =
-        payload.dueDate === null || payload.dueDate === undefined
-          ? undefined
-          : payload.dueDate;
+    if (payload.title !== undefined) {
+      const t = sanitizeTopicTitle(payload.title);
+      assertValidTopicTitle(t);
+      topicItem.title = t;
+    }
+    if (payload.description !== undefined) {
+      topicItem.description = sanitizeTopicDescription(payload.description);
+    }
+    if (payload.assignee !== undefined) {
+      topicItem.assignee = sanitizeTopicAssignee(payload.assignee);
+    }
+    if (payload.type !== undefined) {
+      topicItem.type = parseTopicType(payload.type);
+    }
+    if (payload.priority !== undefined) {
+      topicItem.priority = parseTopicPriority(payload.priority);
+    }
+    if (payload.tags !== undefined) {
+      assertTagsInputWithinLimits(payload.tags);
+      topicItem.tags = sanitizeTopicTags(payload.tags);
+    }
+    if (payload.dueDate !== undefined) {
+      const d = parseOptionalTopicDueDate(payload.dueDate);
+      topicItem.dueDate = d === null || d === undefined ? undefined : d;
+    }
 
     await topicItem.save();
 
@@ -409,6 +501,14 @@ export default class TopicsService {
         fileId: a?.fileId ? String(a.fileId) : undefined,
       }))
       .filter((a) => a.name && a.url);
+
+    const currentLen = (topicItem.attachments ?? []).length;
+    if (currentLen + normalized.length > TOPIC_ATTACHMENTS_MAX) {
+      throw new AppError(
+        `At most ${TOPIC_ATTACHMENTS_MAX} references per topic.`,
+        400,
+      );
+    }
 
     topicItem.attachments = [...(topicItem.attachments ?? []), ...normalized];
     topicItem.stats = topicItem.stats ?? { comments: 0, viewpoints: 0, attachments: 0 };

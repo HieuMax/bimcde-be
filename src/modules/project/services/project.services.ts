@@ -7,6 +7,11 @@ import unitModel from "../../unit/schemas/unit.schema";
 import TopicsService from "../../topic/services/topics.services";
 import groupMemberModel from "../../team/schemas/group-member.schema";
 import groupModel from "../../team/schemas/group.schema";
+import {
+  parseCdeWorkflowMode,
+  isGroupMemberRole,
+} from "../../../constants/cde-workflow";
+import { ensureCdeRootsInitialized } from "../../folder/services/cde-root-init.service";
 
 export default class ProjectService {
   async createProject(userId: Types.ObjectId | undefined, projectData: any) {
@@ -32,6 +37,9 @@ export default class ProjectService {
       if (!user) {
         throw new Error("Người dùng không tồn tại.");
       }
+      if (String(user.role).toLowerCase() !== "admin") {
+        throw new Error("Chỉ Admin mới có thể tạo dự án.");
+      }
       const userInfo = {
         userId: user._id,
         fullName: user.fullName,
@@ -39,8 +47,13 @@ export default class ProjectService {
         role: user.role,
         createdAt: user.createdAt,
       };
+      const workflowMode =
+        parseCdeWorkflowMode(projectData.workflowMode) ?? "NORMAL";
+
       const newProject = {
         ...projectData,
+        workflowMode,
+        cdeRootsInitialized: false,
         createdBy: userInfo,
         modifiedBy: userInfo,
         lastModifiedOn: new Date(),
@@ -80,6 +93,12 @@ export default class ProjectService {
       await topicsService.createTopicDefault(createdProject._id);
       console.log("✅ [PROJECT SERVICE] Default topics created");
       await topicsService.createTopicItemsDefault(createdProject._id);
+
+      await ensureCdeRootsInitialized(
+        createdProject._id.toString(),
+        userId,
+        workflowMode
+      );
 
       return createdProject;
     } catch (error) {
@@ -345,8 +364,8 @@ export default class ProjectService {
         }
 
         const memberInGroup = await groupMemberModel.findOne({
-          userId: userId,
-          projectId: projectId,
+          userId: invitedUser._id,
+          groupId: data.groupId,
         });
 
         if (memberInGroup) {
@@ -359,6 +378,9 @@ export default class ProjectService {
           userId: invitedUser._id,
           groupId: data.groupId,
           invitedAt: new Date(),
+          role: isGroupMemberRole(data.groupMemberRole)
+            ? data.groupMemberRole
+            : "GROUP_MEMBER",
         });
 
         await newMemberInGroup.save();

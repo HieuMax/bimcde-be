@@ -30,17 +30,28 @@ FolderController.get(
 // POST /api/folders (Create)
 FolderController.post(
   "/",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { name, projectId, parentId, createdBy } = req.body;
 
-    if (!name || !projectId)
-      throw new AppError("Name and ProjectID required", 400);
+    if (!projectId) throw new AppError("Project ID is required", 400);
+
+    const normalizedParentId =
+      parentId &&
+      parentId !== "null" &&
+      parentId !== "undefined" &&
+      String(parentId).trim() !== ""
+        ? parentId
+        : null;
+
+    const actorId = req.userId?.toString() || createdBy;
+    if (!actorId) throw new AppError("User context is required", 401);
 
     const newFolder = await folderService.createFolder({
       name,
       projectId,
-      parentId,
-      createdBy,
+      parentId: normalizedParentId,
+      createdBy: actorId,
     });
     res.status(201).json(newFolder);
   }),
@@ -52,7 +63,7 @@ FolderController.put(
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { name, userId } = req.body;
+    const { name } = req.body;
 
     console.log("Rename request body:", req.body);
     console.log("Folder ID to rename:", id);
@@ -67,7 +78,9 @@ FolderController.put(
     const oldName = currentFolder.name || "Unnamed Folder";
 
     // 2. Rename
-    const updated = await folderService.renameFolder(id, name, userId);
+    const uid = req.userId?.toString();
+    if (!uid) throw new AppError("Unauthorized", 401);
+    const updated = await folderService.renameFolder(id, name, uid);
 
     // 3. Log
     await activityService.logActivity({
@@ -106,7 +119,8 @@ FolderController.delete(
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const userId = req.userId?.toString() || req.body.userId;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     const deletedFolder = await folderService.deleteFolder(id, userId);
     res.json({
@@ -136,7 +150,8 @@ FolderController.post(
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const userId = req.userId?.toString() || req.body.userId;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
     const restoredFolder = await folderService.restoreFolder(id, userId);
     res.json({
       message: "Folder restored successfully",
@@ -149,9 +164,12 @@ FolderController.post(
 // PUT /api/folders/:id/move
 FolderController.put(
   "/:id/move",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { destinationParentId, userId } = req.body;
+    const { destinationParentId } = req.body;
+    const userId = req.userId?.toString();
+    if (!userId) throw new AppError("Unauthorized", 401);
 
     const result = await folderService.moveFolder(
       id,
@@ -165,6 +183,7 @@ FolderController.put(
 // POST /api/folders/bulk-tags
 FolderController.post(
   "/bulk-tags",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { folderIds, tagIds } = req.body;
     if (!folderIds || !Array.isArray(folderIds)) {

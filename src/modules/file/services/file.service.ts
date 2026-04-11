@@ -15,6 +15,12 @@ import { v4 as uuidv4 } from "uuid";
 import archiver from "archiver";
 import { Response } from "express";
 import path from "path";
+import { ConflictStrategy } from "../utils/fileUpload.validation";
+import { PROJECT_STORAGE_LIMIT_BYTES } from "../constants/projectStorage";
+import { parseCdeWorkflowMode } from "../../../constants/cde-workflow";
+import CdeAccessService from "../../permission/services/cde-access.service";
+
+const cdeAccess = new CdeAccessService();
 
  console.log("📧 MAIL CONFIG CHECK:", {
   user: env.MAIL_USER,
@@ -401,6 +407,68 @@ export default class FileService {
   }
 
   /**
+   * Planned uploads vs {@link PROJECT_STORAGE_LIMIT_BYTES}.
+   * Uses same metric as {@link getProjectStorageUsed}: sum of latest version size per file.
+   * Accounts for new file (+size) vs new version (replace latest size delta).
+   */
+  async assertIncomingUploadsFitProjectQuota(
+    projectId: string,
+    folderId: string | null | undefined,
+    uploads: { sanitizedName: string; size: number }[],
+    conflictStrategy: ConflictStrategy = "version",
+  ): Promise<void> {
+    let validFolderId: Types.ObjectId | null = null;
+    if (folderId && folderId !== "null" && folderId !== "undefined" && folderId !== "") {
+      validFolderId = new Types.ObjectId(folderId);
+    }
+    const projectObjId = new Types.ObjectId(projectId);
+
+    let virtualUsed = await this.getProjectStorageUsed(projectId);
+
+    for (const { sanitizedName, size } of uploads) {
+      let targetName = sanitizedName;
+
+      if (conflictStrategy === "copy") {
+        const sameName = await FileModel.findOne({
+          folderId: validFolderId,
+          name: sanitizedName,
+          projectId: projectObjId,
+          isDeleted: false,
+        });
+        if (sameName) {
+          targetName = await this.generateUniqueCopyName(
+            sanitizedName,
+            validFolderId,
+            projectObjId,
+          );
+        }
+      }
+
+      const existingFile = await FileModel.findOne({
+        folderId: validFolderId,
+        name: targetName,
+        projectId: projectObjId,
+        isDeleted: false,
+      });
+
+      if (existingFile) {
+        const last = existingFile.versions[existingFile.versions.length - 1];
+        const oldSz = last?.size ?? 0;
+        virtualUsed = virtualUsed - oldSz + size;
+      } else {
+        virtualUsed += size;
+      }
+
+      if (virtualUsed > PROJECT_STORAGE_LIMIT_BYTES) {
+        throw new AppError(
+          "This upload would exceed the project storage limit (500 MB). Remove files or use smaller files.",
+          413,
+        );
+      }
+    }
+  }
+
+  /**
    * Get file type statistics for a project (count by extension).
    * Used for dashboard pie chart.
    */
@@ -472,6 +540,17 @@ export default class FileService {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
 
+    const projectIdStr =
+      typeof file.projectId === "object" && file.projectId !== null
+        ? (file.projectId as Types.ObjectId).toString()
+        : String(file.projectId);
+    await cdeAccess.assertFileAccess(
+      projectIdStr,
+      new Types.ObjectId(userId),
+      fileId,
+      "write"
+    );
+
     const ext = path.extname(file.name);
     let finalName = newNameFromClient.trim();
     
@@ -526,12 +605,41 @@ export default class FileService {
     return await file.save();
   }
 
+  /** "file (1).ext", "file (2).ext", … when keeping a separate document */
+  private async generateUniqueCopyName(
+    fullName: string,
+    folderId: Types.ObjectId | null,
+    projectId: Types.ObjectId,
+  ): Promise<string> {
+    const ext = path.extname(fullName);
+    const base = fullName.slice(0, -ext.length);
+    let n = 1;
+    for (;;) {
+      const candidate = `${base} (${n})${ext}`;
+      const dup = await FileModel.findOne({
+        folderId,
+        name: candidate,
+        projectId,
+        isDeleted: false,
+      });
+      if (!dup) return candidate;
+      n += 1;
+    }
+  }
+
   // HANDLE FILE UPLOAD
   async handleFileUpload(
-    fileData: Express.MulterS3.File,
+    fileData: {
+      storageKey: string;
+      originalname: string;
+      size: number;
+      mimeType: string;
+      location: string;
+    },
     projectId: string,
     folderId: string | null | undefined,
     userId: string,
+    conflictStrategy: ConflictStrategy = "version",
   ) {
     let validFolderId: Types.ObjectId | null = null;
 
@@ -539,32 +647,66 @@ export default class FileService {
       validFolderId = new Types.ObjectId(folderId);
     }
 
-    const publicUrl = `https://${env.R2_PUBLIC_DOMAIN}/${fileData.key}`;
+    const userOid = new Types.ObjectId(userId);
+    if (validFolderId) {
+      await cdeAccess.assertFolderAccess(
+        projectId,
+        userOid,
+        validFolderId.toString(),
+        "create_child"
+      );
+    } else {
+      const proj = await ProjectModel.findById(projectId).select("workflowMode").lean();
+      if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
+        const ctx = await cdeAccess.loadIsoContext(projectId, userOid);
+        if (!ctx.isProjectAdmin) {
+          throw new AppError(
+            "Cannot upload to project root in ISO 19650 mode",
+            403
+          );
+        }
+      }
+    }
+
+    const projectObjId = new Types.ObjectId(projectId);
+    let finalName = fileData.originalname;
 
     let existingFile = await FileModel.findOne({
       folderId: validFolderId,
-      name: fileData.originalname,
-      projectId: new Types.ObjectId(projectId),
+      name: finalName,
+      projectId: projectObjId,
       isDeleted: false,
     });
 
+    if (existingFile && conflictStrategy === "copy") {
+      finalName = await this.generateUniqueCopyName(finalName, validFolderId, projectObjId);
+      existingFile = null;
+    }
+
     if (existingFile) {
+      await cdeAccess.assertFileAccess(
+        projectId,
+        userOid,
+        existingFile._id.toString(),
+        "write"
+      );
       if (
         existingFile.isLocked &&
         existingFile.lockedBy?.toString() !== userId
       ) {
-        throw new Error(
+        throw new AppError(
           "File is locked by another user. Cannot upload new version.",
+          409,
         );
       }
     }
 
     const newVersionData = {
-      fileName: fileData.originalname,
-      storageKey: fileData.key,
-      location: publicUrl,
+      fileName: finalName,
+      storageKey: fileData.storageKey,
+      location: fileData.location,
       size: fileData.size,
-      mimeType: fileData.mimetype,
+      mimeType: fileData.mimeType,
       uploadedBy: new Types.ObjectId(userId),
       createdAt: new Date(),
     };
@@ -576,17 +718,28 @@ export default class FileService {
         version: nextVersion,
       });
       existingFile.currentVersion = nextVersion;
+      existingFile.workflowStatus = "WIP_DRAFT";
+      existingFile.submittedForReviewAt = null;
+      existingFile.submittedForReviewBy = null;
+      existingFile.submittedForReviewVersion = null;
+      existingFile.wipPromotedToSharedVersion = null;
+      existingFile.sharedPromotedToPublishedVersion = null;
       return await existingFile.save();
-    } else {
-      const newFile = new FileModel({
-        name: fileData.originalname,
-        folderId: validFolderId,
-        projectId: new Types.ObjectId(projectId),
-        currentVersion: 1,
-        versions: [{ ...newVersionData, version: 1 }],
-      });
-      return await newFile.save();
     }
+
+    const newFile = new FileModel({
+      name: finalName,
+      folderId: validFolderId,
+      projectId: projectObjId,
+      currentVersion: 1,
+      versions: [{ ...newVersionData, version: 1 }],
+      createdBy: userOid,
+      workflowStatus: "WIP_DRAFT",
+      submittedForReviewAt: null,
+      submittedForReviewBy: null,
+      submittedForReviewVersion: null,
+    });
+    return await newFile.save();
   }
 
   async getFilesInFolder(folderId: string) {
@@ -635,6 +788,33 @@ export default class FileService {
         ? currentVersion.uploadedBy.fullName
         : "--";
 
+    const versionHistory = [...file.versions]
+      .sort((a, b) => a.version - b.version)
+      .map((v) => {
+        const uploader =
+          typeof v.uploadedBy === "object" && v.uploadedBy && "fullName" in v.uploadedBy
+            ? {
+                fullName: (v.uploadedBy as any).fullName,
+                email: (v.uploadedBy as any).email,
+              }
+            : null;
+        return {
+          version: v.version,
+          fileName: v.fileName,
+          size: v.size,
+          mimeType: v.mimeType,
+          location: v.location,
+          createdAt: v.createdAt,
+          uploadedBy: uploader,
+          origin:
+            file.promotedFromFileId && v.version === 1
+              ? "PROMOTION_COPY"
+              : "UPLOAD_OR_UPDATE",
+          promotedFromFileId: file.promotedFromFileId ?? null,
+          promotedFromVersion: file.promotedFromVersion ?? null,
+        };
+      });
+
     return {
       _id: file._id.toString(),
       name: file.name,
@@ -657,6 +837,9 @@ export default class FileService {
           ? (file.lockedBy as any).fullName
           : undefined,
       tags: file.tags ?? [],
+      workflowStatus: file.workflowStatus ?? "WIP_DRAFT",
+      submittedForReviewAt: file.submittedForReviewAt ?? null,
+      versionHistory,
     };
   }
 
@@ -668,6 +851,18 @@ export default class FileService {
   ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
+
+    const projectIdStr =
+      typeof file.projectId === "object" && file.projectId !== null
+        ? (file.projectId as Types.ObjectId).toString()
+        : String(file.projectId);
+    const userOid = new Types.ObjectId(userId);
+    await cdeAccess.assertFileAccess(
+      projectIdStr,
+      userOid,
+      fileId,
+      "move"
+    );
 
     let destFolderIdObj: Types.ObjectId | null = null;
     if (destinationFolderId && destinationFolderId !== "null" && destinationFolderId !== "") {
@@ -690,6 +885,41 @@ export default class FileService {
         `A file with name "${file.name}" already exists in the destination folder.`,
       );
     }
+
+    if (destFolderIdObj) {
+      await cdeAccess.assertFolderAccess(
+        projectIdStr,
+        userOid,
+        destFolderIdObj.toString(),
+        "create_child"
+      );
+    } else {
+      const proj = await ProjectModel.findById(projectIdStr)
+        .select("workflowMode")
+        .lean();
+      if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
+        const ctx = await cdeAccess.loadIsoContext(projectIdStr, userOid);
+        if (!ctx.isProjectAdmin) {
+          throw new AppError(
+            "Cannot move file to project root in ISO 19650 mode",
+            403
+          );
+        }
+      }
+    }
+
+    await cdeAccess.assertIsoArchivedMoveAllowed(
+      projectIdStr,
+      userOid,
+      [file.folderId?.toString() ?? null],
+      destFolderIdObj ? destFolderIdObj.toString() : null,
+    );
+
+    await cdeAccess.assertIsoMoveDestinationSameGroup(
+      projectIdStr,
+      [file.folderId?.toString() ?? null],
+      destFolderIdObj ? destFolderIdObj.toString() : null,
+    );
 
     if (file.isLocked && file.lockedBy?.toString() !== userId) {
       throw new Error("File is locked by another user. Cannot move.");
@@ -714,6 +944,21 @@ export default class FileService {
       throw new Error("No valid files found to move");
 
     const projectId = sourceFiles[0].projectId;
+    const projectIdStr =
+      typeof projectId === "object" && projectId !== null
+        ? (projectId as Types.ObjectId).toString()
+        : String(projectId);
+    const userOid = new Types.ObjectId(userId);
+
+    for (const f of sourceFiles) {
+      await cdeAccess.assertFileAccess(
+        projectIdStr,
+        userOid,
+        f._id.toString(),
+        "move"
+      );
+    }
+
     let destFolderIdObj: Types.ObjectId | null = null;
 
     if (destinationFolderId && destinationFolderId !== "null" && destinationFolderId !== "") {
@@ -723,6 +968,48 @@ export default class FileService {
       if (destFolder.projectId.toString() !== projectId.toString()) throw new Error("Cannot move files to another project");
       destFolderIdObj = destFolder._id;
     }
+
+    if (destFolderIdObj) {
+      await cdeAccess.assertFolderAccess(
+        projectIdStr,
+        userOid,
+        destFolderIdObj.toString(),
+        "create_child"
+      );
+    } else {
+      const proj = await ProjectModel.findById(projectIdStr)
+        .select("workflowMode")
+        .lean();
+      if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
+        const ctx = await cdeAccess.loadIsoContext(projectIdStr, userOid);
+        if (!ctx.isProjectAdmin) {
+          throw new AppError(
+            "Cannot move files to project root in ISO 19650 mode",
+            403
+          );
+        }
+      }
+    }
+
+    const uniqueFolderIds = [
+      ...new Set(
+        sourceFiles
+          .map((f) => f.folderId?.toString())
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    await cdeAccess.assertIsoArchivedMoveAllowed(
+      projectIdStr,
+      userOid,
+      uniqueFolderIds.length > 0 ? uniqueFolderIds : [null],
+      destFolderIdObj ? destFolderIdObj.toString() : null,
+    );
+
+    await cdeAccess.assertIsoMoveDestinationSameGroup(
+      projectIdStr,
+      uniqueFolderIds.length > 0 ? uniqueFolderIds : [null],
+      destFolderIdObj ? destFolderIdObj.toString() : null,
+    );
 
     const sourceFileNames = sourceFiles.map((f) => f.name);
     const duplicateFiles = await FileModel.find({
@@ -776,6 +1063,18 @@ export default class FileService {
   async deleteFile(fileId: string, userId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
+
+    const projectIdStr =
+      typeof file.projectId === "object" && file.projectId !== null
+        ? (file.projectId as Types.ObjectId).toString()
+        : String(file.projectId);
+    await cdeAccess.assertFileAccess(
+      projectIdStr,
+      new Types.ObjectId(userId),
+      fileId,
+      "delete"
+    );
+
     if (file.isLocked && file.lockedBy?.toString() !== userId) throw new Error("File is locked. Cannot delete.");
     file.isDeleted = true;
     file.deletedAt = new Date();
@@ -851,9 +1150,27 @@ export default class FileService {
   }
 
   // --- US45: Download Single File ---
-  async downloadFile(fileId: string, res: Response, version?: number) {
+  async downloadFile(
+    fileId: string,
+    res: Response,
+    version?: number,
+    userId?: string
+  ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
+
+    if (userId) {
+      const projectIdStr =
+        typeof file.projectId === "object" && file.projectId !== null
+          ? (file.projectId as Types.ObjectId).toString()
+          : String(file.projectId);
+      await cdeAccess.assertFileAccess(
+        projectIdStr,
+        new Types.ObjectId(userId),
+        fileId,
+        "read"
+      );
+    }
 
     let targetVersion;
 

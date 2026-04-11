@@ -211,4 +211,45 @@ AccountController.get(
   },
 );
 
+AccountController.post(
+  "/forgot-password",
+  async (req: Request, res: Response) => {
+    try {
+      const result = await accountService.forgotPassword(req.body.email);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: "Lỗi forgot password",
+        error: error.message,
+      });
+    }
+  },
+);
+
+AccountController.post(
+  "/reset-password",
+  async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+
+      const result = await accountService.resetPassword(token, password);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+);
+
 export { AccountController };

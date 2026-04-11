@@ -31,6 +31,13 @@ const Todo2DSchema = new Schema<ITodo>(
     // --- LIÊN KẾT ---
     projectId: { type: String, required: true }, 
     fileId: { type: String, required: true },
+    /** Parent Topic (TopicItem); optional for legacy todos not under a topic */
+    topicId: {
+      type: Schema.Types.ObjectId,
+      ref: "TopicItem",
+      default: null,
+      index: true,
+    },
     viewId: { type: String }, // Link tới View (Optional)
 
     // --- VỊ TRÍ TRÊN BẢN VẼ (Quan trọng) ---

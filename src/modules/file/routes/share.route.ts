@@ -1,5 +1,7 @@
 import express, { Request, Response } from "express";
 import { asyncHandler } from "../../../utils/asyncHandler";
+import { AppError } from "../../../utils/AppError";
+import { authenticate } from "../../../middlewares/authMiddlewares";
 // [QUAN TRỌNG] Import Service để dùng tính năng gửi mail
 import FileService from "../services/file.service"; 
 
@@ -19,7 +21,13 @@ router.get(
 // API TẠO SHARE & GỬI MAIL (POST)
 router.post(
   "/",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.userId?.toString();
+    if (!userId) {
+      throw new AppError("Unauthorized", 401);
+    }
+
     const { 
       fileId, 
       projectId,
@@ -38,7 +46,7 @@ router.post(
     const result = await fileService.shareFile({
       fileId,
       projectId,
-      userId: null,
+      userId,
       type: type || "PUBLIC_LINK",
       recipients: recipients || [],
       note,
