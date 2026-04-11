@@ -168,20 +168,26 @@ export default class TeamService {
 
         const folderService = new FolderService();
         const safeName = assertValidFolderName(name);
-        await folderService.createFolder({
-          name: safeName,
-          projectId: pid,
-          parentId: wipRoot._id,
-          createdBy: userId,
-          groupId: newGroup._id,
-        });
-        await folderService.createFolder({
-          name: safeName,
-          projectId: pid,
-          parentId: sharedRoot._id,
-          createdBy: userId,
-          groupId: newGroup._id,
-        });
+        await folderService.createFolder(
+          {
+            name: safeName,
+            projectId: pid,
+            parentId: wipRoot._id,
+            createdBy: userId,
+            groupId: newGroup._id,
+          },
+          { allowIsoStructuralFolder: true }
+        );
+        await folderService.createFolder(
+          {
+            name: safeName,
+            projectId: pid,
+            parentId: sharedRoot._id,
+            createdBy: userId,
+            groupId: newGroup._id,
+          },
+          { allowIsoStructuralFolder: true }
+        );
       }
 
       return newGroup;
@@ -328,9 +334,63 @@ export default class TeamService {
       }
       await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
 
+      const trimmedName = assertValidFolderName(name);
+
+      const duplicateGroup = await groupModel.findOne({
+        projectId: group.projectId,
+        name: trimmedName,
+        _id: { $ne: group._id },
+      });
+      if (duplicateGroup) {
+        throw new Error("Group name already exists in this project.");
+      }
+
+      const project = await projectSchema.findById(projectId).lean();
+      const mode = parseCdeWorkflowMode(project?.workflowMode) ?? "NORMAL";
+
+      if (mode === "ISO_19650") {
+        await ensureCdeRootsInitialized(
+          projectId.toString(),
+          userId,
+          "ISO_19650"
+        );
+        const pid = new Types.ObjectId(projectId);
+        const wipRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "WIP",
+          isCdeRoot: true,
+          isDeleted: false,
+        });
+        const sharedRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "SHARED",
+          isCdeRoot: true,
+          isDeleted: false,
+        });
+        if (wipRoot && sharedRoot) {
+          const homeFolders = await FolderModel.find({
+            projectId: pid,
+            groupId: group._id,
+            parentId: { $in: [wipRoot._id, sharedRoot._id] },
+            isDeleted: false,
+          }).lean();
+
+          const folderService = new FolderService();
+          for (const f of homeFolders) {
+            await folderService.renameFolder(
+              f._id.toString(),
+              trimmedName,
+              userId.toString()
+            );
+          }
+        }
+      }
+
       const updatedGroup = await groupModel.findByIdAndUpdate(
         groupId,
-        { name },
+        { name: trimmedName },
         { new: true }
       );
 

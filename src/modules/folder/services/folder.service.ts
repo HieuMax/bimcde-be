@@ -10,10 +10,16 @@ import {
   assertValidFolderName,
 } from "../utils/folderNameValidation";
 import CdeAccessService from "../../permission/services/cde-access.service";
+import {
+  assertIsoAllowsUserContentInParent,
+  isIsoGroupHomeFolder,
+} from "../utils/folderIsoPlacement";
 
 export type CreateFolderOptions = {
   /** System use only: create the four CDE roots under parentId null in ISO projects */
   allowIsoRootCreation?: boolean;
+  /** ISO: createGroup only — team home folders directly under WIP/Shared CDE roots */
+  allowIsoStructuralFolder?: boolean;
 };
 
 const cdeAccess = new CdeAccessService();
@@ -100,6 +106,10 @@ export default class FolderService {
         | (IFolder & { path?: string | null })
         | null;
       if (!parentFolder) throw new AppError("Parent folder not found", 404);
+
+      await assertIsoAllowsUserContentInParent(projectIdStr, parentFolder, {
+        allowStructural: options?.allowIsoStructuralFolder,
+      });
 
       path = parentFolder.path
         ? `${parentFolder.path},${parentFolder._id}`
@@ -264,6 +274,16 @@ export default class FolderService {
 
     if (folder.isCdeRoot && folder.isCdeRootLocked) {
       throw new AppError("This CDE root folder cannot be moved", 403);
+    }
+
+    const projForMove = await projectSchema
+      .findById(folder.projectId)
+      .select("workflowMode")
+      .lean();
+    if (parseCdeWorkflowMode(projForMove?.workflowMode) === "ISO_19650") {
+      if (await isIsoGroupHomeFolder(folder)) {
+        throw new AppError("This group folder cannot be moved", 403);
+      }
     }
 
     await cdeAccess.assertFolderAccess(

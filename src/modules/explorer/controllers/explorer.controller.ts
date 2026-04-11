@@ -99,4 +99,29 @@ ExplorerController.get(
   })
 );
 
+/**
+ * GET /api/explorer/folder-subtree-activity
+ * Query: projectId, folderId — last file/folder change inside folder (recursive).
+ */
+ExplorerController.get(
+  "/folder-subtree-activity",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId, folderId } = req.query;
+    if (!projectId || typeof projectId !== "string") {
+      throw new AppError("Project ID is required", 400);
+    }
+    if (!folderId || typeof folderId !== "string") {
+      throw new AppError("folderId is required", 400);
+    }
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    const data = await explorerService.getFolderSubtreeActivity(
+      projectId,
+      folderId,
+      req.userId
+    );
+    res.json(data);
+  })
+);
+
 export { ExplorerController };
