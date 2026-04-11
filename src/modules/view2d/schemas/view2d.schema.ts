@@ -34,6 +34,19 @@ const View2DSchema: Schema = new Schema(
       default: null,
     },
 
+    sharedWith: {
+      isPublic: { type: Boolean, default: false },
+      users: [
+        {
+          userId: { type: Schema.Types.ObjectId, ref: "Account" },
+          fullName: { type: String },
+          email: { type: String },
+          label: { type: String },
+          type: { type: String, enum: ["USER", "GROUP"], default: "USER" },
+        },
+      ],
+    },
+
     // View state
     pageIndex: { type: Number, default: 1 },
     scale: { type: Number, default: 1 },

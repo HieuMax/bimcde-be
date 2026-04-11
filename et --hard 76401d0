@@ -1,0 +1,29 @@
+[33m6c8ac89[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev[m[33m, [m[1;31morigin/dev[m[33m)[m HEAD@{0}: pull origin dev: Fast-forward
+[33m76401d0[m HEAD@{1}: checkout: moving from feature/refactor-view2d-management to dev
+[33ma197266[m[33m ([m[1;31morigin/feature/refactor-view2d-management[m[33m, [m[1;32mfeature/refactor-view2d-management[m[33m)[m HEAD@{2}: reset: moving to HEAD
+[33ma197266[m[33m ([m[1;31morigin/feature/refactor-view2d-management[m[33m, [m[1;32mfeature/refactor-view2d-management[m[33m)[m HEAD@{3}: commit: update 2d, topic3d, share
+[33m07c4163[m HEAD@{4}: pull origin dev: Fast-forward
+[33m1dfc1d1[m HEAD@{5}: commit (merge): resolve conflict #39
+[33m454e14e[m HEAD@{6}: commit: update: routes
+[33m59d2009[m HEAD@{7}: merge origin/dev: updating HEAD
+[33m59d2009[m HEAD@{8}: commit: feat: implement todo2d and view2d modules
+[33mff912e0[m[33m ([m[1;31morigin/refactor-viewer-clean_be[m[33m, [m[1;32mrefactor-viewer-clean_be[m[33m)[m HEAD@{9}: merge origin/dev: updating HEAD
+[33mff912e0[m[33m ([m[1;31morigin/refactor-viewer-clean_be[m[33m, [m[1;32mrefactor-viewer-clean_be[m[33m)[m HEAD@{10}: checkout: moving from refactor-viewer-clean_be to feature/refactor-view2d-management
+[33mff912e0[m[33m ([m[1;31morigin/refactor-viewer-clean_be[m[33m, [m[1;32mrefactor-viewer-clean_be[m[33m)[m HEAD@{11}: commit (merge): Fix merge conflicts
+[33m1210584[m HEAD@{12}: reset: moving to ORIG_HEAD
+[33m1210584[m HEAD@{13}: commit: refactor viewer: remove clipping & multi, keep measurement + hover
+[33m38e0f53[m[33m ([m[1;31morigin/2DViewRL2[m[33m, [m[1;32m2DViewRL2[m[33m)[m HEAD@{14}: checkout: moving from 2DViewRL2 to refactor-viewer-clean_be
+[33m38e0f53[m[33m ([m[1;31morigin/2DViewRL2[m[33m, [m[1;32m2DViewRL2[m[33m)[m HEAD@{15}: commit: feature: chatbot assistant
+[33mc034a59[m HEAD@{16}: commit: feat: update view 3d, fix view 2d, todo 2d
+[33m5158c5e[m HEAD@{17}: commit: fix conflict BE
+[33m8a478c1[m HEAD@{18}: commit (merge): chore: resolve BE conflicts and merge dev into 2DViewRL2
+[33m931ec68[m HEAD@{19}: commit: wip: save BE changes before merging dev
+[33m863b71a[m HEAD@{20}: checkout: moving from dev to 2DViewRL2
+[33m76401d0[m HEAD@{21}: checkout: moving from fix/release2 to dev
+[33m8cb776f[m[33m ([m[1;32mfix/release2[m[33m)[m HEAD@{22}: commit: wip : save progress before pulling dev
+[33m44f5c7b[m[33m ([m[1;31morigin/fix/release2[m[33m)[m HEAD@{23}: commit: fix BE release 2
+[33m863b71a[m HEAD@{24}: checkout: moving from 2DViewRL2 to fix/release2
+[33m863b71a[m HEAD@{25}: commit: update BE Release 2
+[33mc14c449[m HEAD@{26}: commit: update be releases 2
+[33m5891d38[m[33m ([m[1;32mmain[m[33m)[m HEAD@{27}: checkout: moving from main to 2DViewRL2
+[33m5891d38[m[33m ([m[1;32mmain[m[33m)[m HEAD@{28}: clone: from https://github.com/HieuMax/bimcde-be.git
