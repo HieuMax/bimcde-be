@@ -18,13 +18,11 @@ import ViewController3d from "../modules/view3d/controllers/view.controller";
 import { TeamController } from "../modules/team/controllers/team.controllers";
 import View2DController from "../modules/view2d/controllers/view2d.controller";
 import Todo2DController from "../modules/todo2d/controllers/todo2d.controller";
-import ShareRouter from "../modules/file/routes/share.route"
+import ShareRouter from "../modules/file/routes/share.route";
 import { AIController } from "../modules/chatbot/controllers/chatbot.controller";
-import Topic3DController from "../modules/topic3d/controllers/topic3d.controller";
 import { TodoController } from "../modules/todo/todo/controllers/todo.controllers";
 import TodoCommentController from "../modules/todo/comment/controllers/comment.controller";
 import ClashController from "../modules/clashSet/controllers/clash.controller";
-import { attachtmentTodoController } from "../modules/todo/attachment/controllers/attachment.controller";
 import { NotificationController } from "../modules/notification/controllers/notification.controller";
 
 const apiRouter = express.Router();
@@ -37,13 +35,12 @@ apiRouter.use("/cleanup", CleanupController);
 apiRouter.use("/comments", CommentController);
 apiRouter.use("/tags", TagController);
 apiRouter.use("/projects", ProjectController);
-apiRouter.use("/permissions", PermissionsController)
+apiRouter.use("/permissions", PermissionsController);
 apiRouter.use("/units", UnitController);
 apiRouter.use("/topics", TopicsController);
 apiRouter.use("/views2d", View2DController);
 apiRouter.use("/todos2d", Todo2DController);
 apiRouter.use("/todos3d", Todo3dController);
-apiRouter.use("/topic3d", Topic3DController);
 apiRouter.use("/views3d", ViewController3d);
 apiRouter.use("/team", TeamController);
 apiRouter.use("/views", ViewController);
@@ -54,7 +51,6 @@ apiRouter.use("/assistant", AIController);
 apiRouter.use("/clash-sets", ClashController);
 apiRouter.use("/todo", TodoController);
 apiRouter.use("/todo/comment", TodoCommentController);
-apiRouter.use("/todo/attachment", attachtmentTodoController);
 apiRouter.use("/notification", NotificationController);
 
 export { apiRouter };

@@ -1,4 +1,4 @@
-import mongoose, { Document } from "mongoose";
+import mongoose, { Document, Types } from "mongoose";
 
 export interface IAttachment {
   name: string;
@@ -11,8 +11,8 @@ export interface IAttachment {
 export interface IModelTransform {
   modelID: number;
   fileUrl: string;
-  position: { x: number, y: number, z: number };
-  rotation: { x: number, y: number, z: number };
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
   scale: number;
 }
 
@@ -21,24 +21,34 @@ export interface IClippingPlane {
   constant: number;
 }
 
+export interface IAssigness {
+  assigneeId?: Types.ObjectId;
+  name: string;
+  type: string;
+  label: string;
+}
+
+export interface ITag {
+  tagId: Types.ObjectId;
+  name: string;
+}
+
 export interface ITodo extends Document {
   title: string;
   description?: string;
   status: "New" | "In Progress" | "Done" | "Closed";
   priority: "high" | "normal" | "low";
   completion: number; // 0-100
-  assignees?: string[];
   type:
-  | "undefined"
-  | "comment"
-  | "issue"
-  | "request"
-  | "fault"
-  | "inquiry"
-  | "solution"
-  | "remark"
-  | "clash";
-  tags?: string[];
+    | "undefined"
+    | "comment"
+    | "issue"
+    | "request"
+    | "fault"
+    | "inquiry"
+    | "solution"
+    | "remark"
+    | "clash";
   dueDate?: Date;
   projectId: mongoose.Types.ObjectId;
   createdBy: mongoose.Types.ObjectId;
@@ -67,6 +77,8 @@ export interface ITodo extends Document {
     clippingPlanes?: IClippingPlane[];
   };
   attachments?: IAttachment[];
+  assignees: IAssigness[];
+  tags: ITag[];
   createdAt: Date;
   updatedAt: Date;
 }
