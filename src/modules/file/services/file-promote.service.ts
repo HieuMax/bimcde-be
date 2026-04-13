@@ -9,7 +9,7 @@ import TopicItemModel from "../../topic/schemas/topic-item.schema";
 import Todo2DModel from "../../todo2d/schemas/todo2d.schema";
 import { assertFileSafeToPublish } from "../../topic/utils/topic-todo-collaboration.helpers";
 import { isTopicStatusUnresolvedForPublish } from "../../../constants/topic-todo-workflow";
-import notificationModel from "../../notification/schemas/comment.schemas";
+import notificationModel from "../../notification/schemas/notification.schemas"; 
 import { getIO } from "../../../lib/socket.lib";
 import { AppError } from "../../../utils/AppError";
 import {

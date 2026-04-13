@@ -252,6 +252,7 @@ export default class AccountService {
       await user.save();
 
       const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
+      console.log(resetLink);
       const html = resetPasswordTemplate(resetLink);
 
       await sendEmail(user.email, "Reset Password", html);
@@ -300,5 +301,16 @@ export default class AccountService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async verifyResetToken(token: string) {
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await AccountModel.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: new Date() },
+    });
+
+    return { valid: !!user };
   }
 }

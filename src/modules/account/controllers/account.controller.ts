@@ -252,4 +252,26 @@ AccountController.post(
   },
 );
 
+AccountController.get(
+  "/verify-reset-token",
+  async (req: Request, res: Response) => {
+    try {
+      const { token } = req.query;
+
+      const result = await accountService.verifyResetToken(token as string);
+
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: "Lỗi verify token",
+        error: error.message,
+      });
+    }
+  },
+);
+
 export { AccountController };
