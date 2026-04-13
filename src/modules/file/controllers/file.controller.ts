@@ -28,6 +28,13 @@ import { parsePromoteTargetStage } from "../../../constants/cde-workflow";
 import { auditLog } from "../../../middlewares/auditLog.middleware"; // Import Middleware
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ActivityService from "../../activity/services/activity.service";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
+import FileModel from "../schemas/file.schema";
+import FolderModel from "../../folder/schemas/folder.schema";
 
 const PublicFileController = express.Router();
 const FileController = express.Router();
@@ -168,6 +175,34 @@ FileController.post(
       }
     }
 
+    const actor = actorFromReq(req);
+    if (actor) {
+      for (const doc of results as Array<{
+        _id: unknown;
+        name?: string;
+        projectId?: unknown;
+        folderId?: unknown;
+      }>) {
+        await logActivitySafe({
+          projectId: doc.projectId
+            ? projectIdToString(doc.projectId)
+            : String(projectId),
+          actor,
+          actionGroup: "FILE",
+          actionType: "UPLOAD",
+          target: {
+            itemId: String(doc._id),
+            itemModel: "File",
+            itemName: doc.name ?? "File",
+          },
+          description: `Uploaded file "${doc.name ?? "file"}"`,
+          metaData: {
+            folderId: doc.folderId ? projectIdToString(doc.folderId) : null,
+          },
+        });
+      }
+    }
+
     res.status(201).json(results);
   }),
 );
@@ -235,6 +270,23 @@ FileController.post(
     }
 
     const updated = await filePromoteService.submitForReview(id, req.userId);
+    const actorSubmit = actorFromReq(req);
+    if (actorSubmit && updated) {
+      const pid = projectIdToString(updated.projectId);
+      await logActivitySafe({
+        projectId: pid,
+        actor: actorSubmit,
+        actionGroup: "FILE",
+        actionType: "SUBMIT_FOR_REVIEW",
+        target: {
+          itemId: String(updated._id),
+          itemModel: "File",
+          itemName: updated.name,
+        },
+        description: `Submitted "${updated.name}" (v${updated.currentVersion}) for review`,
+        metaData: { version: updated.currentVersion },
+      });
+    }
     res.status(200).json({
       success: true,
       message: "File submitted for review",
@@ -281,7 +333,33 @@ FileController.put(
     const userId = req.userId?.toString();
     if (!userId) throw new AppError("Unauthorized", 401);
 
+    const beforeMove = await FileModel.findById(id)
+      .select("projectId name folderId")
+      .lean();
     const result = await fileService.moveFile(id, destinationFolderId, userId);
+    const actorMove = actorFromReq(req);
+    if (actorMove && beforeMove) {
+      await logActivitySafe({
+        projectId: projectIdToString(beforeMove.projectId),
+        actor: actorMove,
+        actionGroup: "FILE",
+        actionType: "MOVE",
+        target: {
+          itemId: id,
+          itemModel: "File",
+          itemName: beforeMove.name ?? "File",
+        },
+        description: `Moved file "${beforeMove.name}"`,
+        metaData: {
+          fromFolderId: beforeMove.folderId
+            ? projectIdToString(beforeMove.folderId)
+            : null,
+          toFolderId: result.folderId
+            ? projectIdToString(result.folderId)
+            : null,
+        },
+      });
+    }
     res.json(result);
   }),
 );
@@ -303,12 +381,38 @@ FileController.post(
       throw new AppError("fileIds must be a non-empty array", 400);
     }
 
+    const beforeBulk = await FileModel.find({
+      _id: { $in: fileIds },
+      isDeleted: false,
+    })
+      .select("projectId name")
+      .lean();
     const result = await fileService.moveManyFiles(
       fileIds,
       destinationFolderId,
       userId,
     );
-
+    const actorBulk = actorFromReq(req);
+    if (actorBulk && beforeBulk.length > 0) {
+      const pid = projectIdToString(beforeBulk[0].projectId);
+      await logActivitySafe({
+        projectId: pid,
+        actor: actorBulk,
+        actionGroup: "FILE",
+        actionType: "MOVE_BULK",
+        target: {
+          itemId: String(fileIds[0]),
+          itemModel: "File",
+          itemName: `${fileIds.length} file(s)`,
+        },
+        description: `Bulk moved ${fileIds.length} file(s)`,
+        metaData: {
+          fileIds,
+          destinationFolderId: destinationFolderId ?? null,
+          names: beforeBulk.map((f) => f.name),
+        },
+      });
+    }
     res.json({
       success: true,
       message: "Moved successfully",
@@ -336,6 +440,24 @@ FileController.post(
     }
 
     const result = await fileService.toggleLock(id, userId, action);
+    const actorLock = actorFromReq(req);
+    if (actorLock && result) {
+      await logActivitySafe({
+        projectId: projectIdToString(result.projectId),
+        actor: actorLock,
+        actionGroup: "FILE",
+        actionType: action === "LOCK" ? "LOCK" : "UNLOCK",
+        target: {
+          itemId: id,
+          itemModel: "File",
+          itemName: result.name,
+        },
+        description:
+          action === "LOCK"
+            ? `Checked out (locked) "${result.name}"`
+            : `Checked in (unlocked) "${result.name}"`,
+      });
+    }
     res.json(result);
   }),
 );
@@ -385,6 +507,29 @@ FileController.post(
     }
 
     const result = await fileService.toggleLockMany(folderId, userId, action);
+    const folderMeta = await FolderModel.findById(folderId)
+      .select("projectId name")
+      .lean();
+    const actorFolderLock = actorFromReq(req);
+    if (actorFolderLock && folderMeta) {
+      await logActivitySafe({
+        projectId: projectIdToString(folderMeta.projectId),
+        actor: actorFolderLock,
+        actionGroup: "FOLDER",
+        actionType:
+          action === "LOCK" ? "BULK_LOCK_FILES" : "BULK_UNLOCK_FILES",
+        target: {
+          itemId: folderId,
+          itemModel: "Folder",
+          itemName: folderMeta.name ?? "Folder",
+        },
+        description:
+          action === "LOCK"
+            ? `Locked files under folder "${folderMeta.name}"`
+            : `Unlocked files under folder "${folderMeta.name}"`,
+        metaData: { modifiedCount: result.modifiedCount },
+      });
+    }
     res.json(result);
   }),
 );
@@ -401,6 +546,7 @@ FileController.get(
     const { id, type, version } = req.query;
     if (!id || !type) throw new AppError("Missing id or type", 400);
 
+    const actor = actorFromReq(req);
     if (type === "file") {
       const versionNum = version ? parseInt(version as string) : undefined;
       const uid = req.userId?.toString();
@@ -408,10 +554,11 @@ FileController.get(
         id as string,
         res,
         versionNum,
-        uid
+        uid,
+        actor ?? undefined,
       );
     } else if (type === "folder") {
-      await fileService.downloadFolder(id as string, res);
+      await fileService.downloadFolder(id as string, res, actor ?? undefined);
     } else {
       throw new AppError("Invalid type", 400);
     }
@@ -482,7 +629,13 @@ FileController.post(
       throw new AppError("No items selected", 400);
     }
 
-    await fileService.downloadBulk(items, projectId, res);
+    const actor = actorFromReq(req);
+    await fileService.downloadBulk(
+      items,
+      projectId,
+      res,
+      actor ?? undefined,
+    );
   }),
 );
 
@@ -507,6 +660,27 @@ FileController.post(
     // Trimble Connect usually has check boxes. If you uncheck, it removes. So it's a SET operation.
 
     const result = await fileService.assignTags(fileIds, tagIds || []);
+    const actorTags = actorFromReq(req);
+    if (actorTags && Array.isArray(result) && result.length > 0) {
+      for (const f of result as Array<{
+        _id: unknown;
+        name: string;
+        projectId: unknown;
+      }>) {
+        await logActivitySafe({
+          projectId: projectIdToString(f.projectId),
+          actor: actorTags,
+          actionGroup: "FILE",
+          actionType: "TAG_SET",
+          target: {
+            itemId: String(f._id),
+            itemModel: "File",
+            itemName: f.name,
+          },
+          metaData: { tagIds: tagIds || [] },
+        });
+      }
+    }
     res.json(result);
   }),
 );

@@ -3,7 +3,13 @@ import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 // [QUAN TRỌNG] Import Service để dùng tính năng gửi mail
-import FileService from "../services/file.service"; 
+import FileService from "../services/file.service";
+import FileModel from "../schemas/file.schema";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers"; 
 
 const router = express.Router();
 // Khởi tạo Service
@@ -43,17 +49,42 @@ router.post(
       return res.status(400).json({ message: "Thiếu fileId" });
     }
 
+    const shareType = type || "PUBLIC_LINK";
     const result = await fileService.shareFile({
       fileId,
       projectId,
       userId,
-      type: type || "PUBLIC_LINK",
+      type: shareType,
       recipients: recipients || [],
       note,
       expiresAt,
       accessLevel: "VIEW",
       showLatestVersion: true
     });
+
+    const actor = actorFromReq(req);
+    if (actor && result.share) {
+      const sid = result.share.fileId;
+      const fileIdStr = sid != null ? String(sid) : String(fileId);
+      const fileDoc = await FileModel.findById(fileIdStr).select("name").lean();
+      await logActivitySafe({
+        projectId: projectIdToString(result.share.projectId),
+        actor,
+        actionGroup: "FILE",
+        actionType: "SHARE_LINK",
+        target: {
+          itemId: fileIdStr,
+          itemModel: "File",
+          itemName: fileDoc?.name ?? "File",
+        },
+        description: `Created ${shareType} share link for "${fileDoc?.name ?? "file"}"`,
+        metaData: {
+          shareType,
+          recipientCount: Array.isArray(recipients) ? recipients.length : 0,
+          expiresAt: expiresAt ?? null,
+        },
+      });
+    }
 
     return res.json({
       success: true,

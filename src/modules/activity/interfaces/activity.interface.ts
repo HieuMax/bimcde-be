@@ -16,12 +16,31 @@ export interface IActivity extends Document {
     | "VIEW"
     | "RELEASE"
     | "TOPIC"
-    | "RESTORE";
+    | "TAG"
+    | "PROJECT"
+    | "PERMISSION"
+    | "TODO"
+    | "GROUP"
+    | "COMMENT"
+    | "RESTORE"
+    | "CLASH";
   actionType: string; // "CREATE", "UPDATE", "DELETE", "UPLOAD", ...
 
   target: {
     itemId: Types.ObjectId;
-    itemModel: "File" | "Folder" | "View" | "Release" | "Topic" | "Account";
+    itemModel:
+      | "File"
+      | "Folder"
+      | "View"
+      | "Release"
+      | "Topic"
+      | "Account"
+      | "Tag"
+      | "Project"
+      | "Group"
+      | "Todo"
+      | "Comment"
+      | "ClashSet";
     itemName: string;
   };
 
@@ -39,11 +58,37 @@ export interface CreateActivityDTO {
     fullName: string;
     email?: string;
   };
-  actionGroup: "FILE" | "FOLDER" | "MEMBER" | "VIEW" | "RELEASE" | "TOPIC";
+  actionGroup:
+    | "FILE"
+    | "FOLDER"
+    | "MEMBER"
+    | "VIEW"
+    | "RELEASE"
+    | "TOPIC"
+    | "TAG"
+    | "PROJECT"
+    | "PERMISSION"
+    | "TODO"
+    | "GROUP"
+    | "COMMENT"
+    | "RESTORE"
+    | "CLASH";
   actionType: string;
   target: {
     itemId: string | Types.ObjectId;
-    itemModel: "File" | "Folder" | "View" | "Release" | "Topic" | "Account";
+    itemModel:
+      | "File"
+      | "Folder"
+      | "View"
+      | "Release"
+      | "Topic"
+      | "Account"
+      | "Tag"
+      | "Project"
+      | "Group"
+      | "Todo"
+      | "Comment"
+      | "ClashSet";
     itemName: string;
   };
   description?: string;

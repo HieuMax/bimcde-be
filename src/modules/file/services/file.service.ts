@@ -19,6 +19,9 @@ import { ConflictStrategy } from "../utils/fileUpload.validation";
 import { PROJECT_STORAGE_LIMIT_BYTES } from "../constants/projectStorage";
 import { parseCdeWorkflowMode } from "../../../constants/cde-workflow";
 import CdeAccessService from "../../permission/services/cde-access.service";
+import { assertIsoAllowsUserContentInParent } from "../../folder/utils/folderIsoPlacement";
+import { logActivitySafe, projectIdToString } from "../../activity/utils/auditActivity.helpers";
+import type { CreateActivityDTO } from "../../activity/interfaces/activity.interface";
 
 const cdeAccess = new CdeAccessService();
 
@@ -655,16 +658,23 @@ export default class FileService {
         validFolderId.toString(),
         "create_child"
       );
+      const folderDoc = await FolderModel.findOne({
+        _id: validFolderId,
+        isDeleted: false,
+      })
+        .select("_id isCdeRoot cdeStage groupId parentId")
+        .lean();
+      if (!folderDoc) {
+        throw new AppError("Folder not found", 404);
+      }
+      await assertIsoAllowsUserContentInParent(projectId, folderDoc);
     } else {
       const proj = await ProjectModel.findById(projectId).select("workflowMode").lean();
       if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
-        const ctx = await cdeAccess.loadIsoContext(projectId, userOid);
-        if (!ctx.isProjectAdmin) {
-          throw new AppError(
-            "Cannot upload to project root in ISO 19650 mode",
-            403
-          );
-        }
+        throw new AppError(
+          "Cannot upload at project root in ISO 19650 mode. Open a folder under a CDE stage or team folder first.",
+          403
+        );
       }
     }
 
@@ -1154,7 +1164,8 @@ export default class FileService {
     fileId: string,
     res: Response,
     version?: number,
-    userId?: string
+    userId?: string,
+    auditActor?: CreateActivityDTO["actor"],
   ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
@@ -1170,6 +1181,20 @@ export default class FileService {
         fileId,
         "read"
       );
+      if (auditActor) {
+        await logActivitySafe({
+          projectId: projectIdToString(file.projectId),
+          actor: auditActor,
+          actionGroup: "FILE",
+          actionType: "DOWNLOAD",
+          target: {
+            itemId: fileId,
+            itemModel: "File",
+            itemName: file.name ?? "File",
+          },
+          metaData: { version: version ?? null },
+        });
+      }
     }
 
     let targetVersion;
@@ -1205,9 +1230,27 @@ export default class FileService {
     (s3Response.Body as any).pipe(res);
   }
 
-  async downloadFolder(folderId: string, res: Response) {
+  async downloadFolder(
+    folderId: string,
+    res: Response,
+    auditActor?: CreateActivityDTO["actor"],
+  ) {
     const rootFolder = await FolderModel.findOne({ _id: folderId, isDeleted: false });
     if (!rootFolder) throw new Error("Folder not found");
+
+    if (auditActor) {
+      await logActivitySafe({
+        projectId: projectIdToString(rootFolder.projectId),
+        actor: auditActor,
+        actionGroup: "FOLDER",
+        actionType: "DOWNLOAD",
+        target: {
+          itemId: folderId,
+          itemModel: "Folder",
+          itemName: rootFolder.name ?? "Folder",
+        },
+      });
+    }
 
     const allFolders = await FolderModel.find({
       $or: [{ _id: folderId }, { path: { $regex: `,${folderId},` } }],
@@ -1259,7 +1302,23 @@ export default class FileService {
     items: { id: string; type: "file" | "folder" }[],
     projectId: string,
     res: Response,
+    auditActor?: CreateActivityDTO["actor"],
   ) {
+    if (auditActor && projectId) {
+      await logActivitySafe({
+        projectId,
+        actor: auditActor,
+        actionGroup: "FILE",
+        actionType: "DOWNLOAD_BULK",
+        target: {
+          itemId: projectId,
+          itemModel: "Project",
+          itemName: "Bulk download",
+        },
+        metaData: { itemCount: items.length },
+      });
+    }
+
     let projectName = "Project";
     try {
     } catch (e) {}

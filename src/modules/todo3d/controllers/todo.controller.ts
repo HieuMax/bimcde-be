@@ -3,6 +3,12 @@ import TodoService from "../services/todo.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import { authenticate } from "../../../middlewares/authMiddlewares";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
+import Todo3dModel from "../schemas/todo.schema";
 
 const TodoController = express.Router();
 const todoService = new TodoService();
@@ -102,6 +108,22 @@ TodoController.post(
       attachments
     });
 
+    const actor = actorFromReq(req);
+    if (actor && newTodo?._id && newTodo.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(newTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "CREATE",
+        target: {
+          itemId: String(newTodo._id),
+          itemModel: "Todo",
+          itemName: String(newTodo.title ?? "Todo"),
+        },
+        description: `Created 3D todo "${String(newTodo.title ?? "")}"`,
+      });
+    }
+
     res.status(201).json(newTodo);
   })
 );
@@ -165,6 +187,21 @@ TodoController.put(
     }
 
     const updatedTodo = await todoService.updateTodo(id, updateData, userId);
+    const actor = actorFromReq(req);
+    if (actor && updatedTodo?._id && updatedTodo.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(updatedTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "UPDATE",
+        target: {
+          itemId: String(updatedTodo._id),
+          itemModel: "Todo",
+          itemName: String(updatedTodo.title ?? "Todo"),
+        },
+        description: `Updated 3D todo "${String(updatedTodo.title ?? "")}"`,
+      });
+    }
     res.json(updatedTodo);
   })
 );
@@ -188,7 +225,23 @@ TodoController.delete(
       throw new AppError("User ID is required", 400);
     }
 
+    const existing = await Todo3dModel.findById(id).lean();
     await todoService.deleteTodo(id, userId);
+    const actor = actorFromReq(req);
+    if (actor && existing?._id && existing.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(existing.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "DELETE",
+        target: {
+          itemId: String(existing._id),
+          itemModel: "Todo",
+          itemName: String((existing as { title?: string }).title ?? "Todo"),
+        },
+        description: "Deleted 3D todo",
+      });
+    }
     res.json({ message: "Todo deleted successfully" });
   })
 );
@@ -219,6 +272,21 @@ TodoController.patch(
     }
 
     const updatedTodo = await todoService.updateTodoStatus(id, status);
+    const actor = actorFromReq(req);
+    if (actor && updatedTodo?._id && updatedTodo.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(updatedTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "STATUS_UPDATE",
+        target: {
+          itemId: String(updatedTodo._id),
+          itemModel: "Todo",
+          itemName: String(updatedTodo.title ?? "Todo"),
+        },
+        metaData: { status },
+      });
+    }
     res.json(updatedTodo);
   })
 );

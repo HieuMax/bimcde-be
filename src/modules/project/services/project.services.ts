@@ -37,9 +37,6 @@ export default class ProjectService {
       if (!user) {
         throw new Error("Người dùng không tồn tại.");
       }
-      if (String(user.role).toLowerCase() !== "admin") {
-        throw new Error("Chỉ Admin mới có thể tạo dự án.");
-      }
       const userInfo = {
         userId: user._id,
         fullName: user.fullName,

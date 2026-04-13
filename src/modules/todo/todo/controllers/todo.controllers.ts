@@ -3,6 +3,12 @@ import { authenticate } from "../../../../middlewares/authMiddlewares";
 import TodoService from "../services/todo.services";
 import { asyncHandler } from "../../../../utils/asyncHandler";
 import { AppError } from "../../../../utils/AppError";
+import todoModel from "../schemas/todo.schema";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../../activity/utils/auditActivity.helpers";
 
 const TodoController = express.Router();
 
@@ -107,6 +113,25 @@ TodoController.post(
       attachments,
     });
 
+    const actor = actorFromReq(req);
+    if (actor && newTodo?._id) {
+      const pid = newTodo.projectId ?? req.params.projectId;
+      if (pid) {
+        await logActivitySafe({
+          projectId: projectIdToString(pid),
+          actor,
+          actionGroup: "TODO",
+          actionType: "CREATE",
+          target: {
+            itemId: String(newTodo._id),
+            itemModel: "Todo",
+            itemName: newTodo.title ?? "Todo",
+          },
+          description: `Created board todo "${newTodo.title ?? ""}"`,
+        });
+      }
+    }
+
     res.status(201).json(newTodo);
   }),
 );
@@ -174,6 +199,29 @@ TodoController.put(
     }
 
     const updatedTodo = await todoService.updateTodo(id, updateData, userId);
+
+    const actor = actorFromReq(req);
+    if (actor && updatedTodo?._id) {
+      const assignTouched = Object.prototype.hasOwnProperty.call(
+        req.body ?? {},
+        "assignees",
+      );
+      await logActivitySafe({
+        projectId: projectIdToString(updatedTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: assignTouched ? "UPDATE_ASSIGN" : "UPDATE",
+        target: {
+          itemId: String(updatedTodo._id),
+          itemModel: "Todo",
+          itemName: updatedTodo.title ?? "Todo",
+        },
+        description: assignTouched
+          ? `Updated assignments for "${updatedTodo.title ?? "todo"}"`
+          : `Updated todo "${updatedTodo.title ?? ""}"`,
+        metaData: { keys: Object.keys(req.body ?? {}) },
+      });
+    }
     res.json(updatedTodo);
   }),
 );
@@ -197,7 +245,24 @@ TodoController.delete(
       throw new AppError("User ID is required", 400);
     }
 
+    const existing = await todoModel.findById(req.params.todoId).lean();
     await todoService.deleteTodo(id, userId);
+    const actor = actorFromReq(req);
+    if (actor && existing?._id) {
+      await logActivitySafe({
+        projectId: projectIdToString(existing.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "DELETE",
+        target: {
+          itemId: String(existing._id),
+          itemModel: "Todo",
+          itemName: (existing as { title?: string }).title ?? "Todo",
+        },
+        description: `Deleted board todo "${(existing as { title?: string }).title ?? ""}"`,
+      });
+    }
+
     res.json({ message: "Todo deleted successfully" });
   }),
 );
