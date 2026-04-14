@@ -7,6 +7,85 @@ import FileModel from "../../file/schemas/file.schema";
 import FolderModel from "../../folder/schemas/folder.schema";
 
 export default class ActivityService {
+  private async collectDescendantFolderIds(
+    projectId: Types.ObjectId,
+    rootFolderId: Types.ObjectId,
+  ): Promise<Types.ObjectId[]> {
+    const result: Types.ObjectId[] = [rootFolderId];
+    let frontier: Types.ObjectId[] = [rootFolderId];
+    while (frontier.length > 0) {
+      const children = await FolderModel.find({
+        projectId,
+        parentId: { $in: frontier },
+        isDeleted: false,
+      })
+        .select("_id")
+        .lean();
+      const next = children.map((c) => c._id as Types.ObjectId);
+      result.push(...next);
+      frontier = next;
+    }
+    return result;
+  }
+
+  /** Adds restoreStatus for DELETE actions (same rules as project-wide feed). */
+  private async attachRestoreStatus(
+    activities: any[],
+    lightweight: boolean,
+  ): Promise<any[]> {
+    if (lightweight) {
+      return activities.map((act: any) => ({ ...act, restoreStatus: "NONE" }));
+    }
+    return Promise.all(
+      activities.map(async (act: any) => {
+        let restoreStatus: "NONE" | "RESTORABLE" | "RESTORED" = "NONE";
+        if (act.actionType === "DELETE") {
+          let item = null;
+          if (act.target.itemModel === "File") {
+            item = await FileModel.findOne({ _id: act.target.itemId })
+              .select("isDeleted")
+              .lean();
+          } else if (act.target.itemModel === "Folder") {
+            item = await FolderModel.findOne({ _id: act.target.itemId })
+              .select("isDeleted")
+              .lean();
+          }
+          if (item) {
+            restoreStatus = item.isDeleted ? "RESTORABLE" : "RESTORED";
+          } else {
+            restoreStatus = "NONE";
+          }
+        }
+        return { ...act, restoreStatus };
+      }),
+    );
+  }
+
+  /** Folder id for explorer deep links (File targets only). */
+  private async attachFileFolderIds(activities: any[]): Promise<any[]> {
+    const fileIds = activities
+      .filter((a) => a.target?.itemModel === "File")
+      .map((a) => String(a.target.itemId));
+    if (fileIds.length === 0) return activities;
+    const unique = [...new Set(fileIds)];
+    const files = await FileModel.find({
+      _id: { $in: unique.map((id) => new Types.ObjectId(id)) },
+    })
+      .select("_id folderId")
+      .lean();
+    const map = new Map(
+      files.map((f) => [
+        String(f._id),
+        f.folderId ? String(f.folderId) : null,
+      ]),
+    );
+    return activities.map((a) => {
+      if (a.target?.itemModel !== "File") return a;
+      const fid = String(a.target.itemId);
+      return { ...a, fileFolderId: map.get(fid) ?? null };
+    });
+  }
+
   /**
    * Ghi lại một hoạt động vào hệ thống.
    * Hàm này thường được gọi bởi các Service khác.
@@ -55,6 +134,8 @@ export default class ActivityService {
       endDate?: string;
       page?: number;
       limit?: number;
+      /** When true, skip restoreStatus checks (faster for recent activity widget) */
+      lightweight?: boolean;
     },
   ) {
     const projectObjId = new Types.ObjectId(projectId);
@@ -130,43 +211,108 @@ export default class ActivityService {
       ActivityModel.countDocuments(query),
     ]);
 
-    // [NEW] 4. Post-process: Kiểm tra trạng thái Restorable cho các item bị xóa
-    const processedActivities = await Promise.all(
-      activities.map(async (act: any) => {
-        // Mặc định status là NONE
-        let restoreStatus: "NONE" | "RESTORABLE" | "RESTORED" = "NONE";
-
-        // Chỉ check logic này cho hành động DELETE
-        if (act.actionType === "DELETE") {
-          let item = null;
-
-          if (act.target.itemModel === "File") {
-            // Tìm file, lấy cả trường isDeleted
-            item = await FileModel.findOne({ _id: act.target.itemId })
-              .select("isDeleted")
-              .lean();
-          } else if (act.target.itemModel === "Folder") {
-            item = await FolderModel.findOne({ _id: act.target.itemId })
-              .select("isDeleted")
-              .lean();
-          }
-
-          if (item) {
-            // Nếu tìm thấy item:
-            // isDeleted = true  -> Chưa restore -> RESTORABLE
-            // isDeleted = false -> Đã restore -> RESTORED
-            restoreStatus = item.isDeleted ? "RESTORABLE" : "RESTORED";
-          } else {
-            // Không tìm thấy -> Đã bị cleanup xóa vĩnh viễn -> NONE
-            restoreStatus = "NONE";
-          }
-        }
-
-        return { ...act, restoreStatus };
-      }),
+    const withFolders = await this.attachFileFolderIds(activities);
+    const processedActivities = await this.attachRestoreStatus(
+      withFolders,
+      !!filters.lightweight,
     );
     return {
       data: processedActivities,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Activities for a single file, or for a folder + all files in its subtree.
+   */
+  async getActivitiesForItem(
+    projectId: string,
+    opts: {
+      fileId?: string;
+      folderId?: string;
+      page?: number;
+      limit?: number;
+      lightweight?: boolean;
+    },
+  ) {
+    const projectObjId = new Types.ObjectId(projectId);
+    const page = opts.page || 1;
+    const limit = opts.limit || 20;
+    const skip = (page - 1) * limit;
+    const lightweight = !!opts.lightweight;
+
+    const query: Record<string, unknown> = { projectId: projectObjId };
+
+    if (opts.fileId) {
+      const file = await FileModel.findOne({
+        _id: new Types.ObjectId(opts.fileId),
+        projectId: projectObjId,
+      })
+        .select("_id")
+        .lean();
+      if (!file) {
+        throw new AppError("File not found", 404);
+      }
+      query["target.itemModel"] = "File";
+      query["target.itemId"] = new Types.ObjectId(opts.fileId);
+    } else if (opts.folderId) {
+      const folder = await FolderModel.findOne({
+        _id: new Types.ObjectId(opts.folderId),
+        projectId: projectObjId,
+        isDeleted: false,
+      })
+        .select("_id")
+        .lean();
+      if (!folder) {
+        throw new AppError("Folder not found", 404);
+      }
+      const folderIds = await this.collectDescendantFolderIds(
+        projectObjId,
+        new Types.ObjectId(opts.folderId),
+      );
+      const fileDocs = await FileModel.find({
+        projectId: projectObjId,
+        folderId: { $in: folderIds },
+      })
+        .select("_id")
+        .lean();
+      const fileObjectIds = fileDocs.map((f) => f._id as Types.ObjectId);
+      const orConditions: Record<string, unknown>[] = [
+        {
+          "target.itemModel": "Folder",
+          "target.itemId": { $in: folderIds },
+        },
+      ];
+      if (fileObjectIds.length > 0) {
+        orConditions.push({
+          "target.itemModel": "File",
+          "target.itemId": { $in: fileObjectIds },
+        });
+      }
+      query.$or = orConditions;
+    } else {
+      throw new AppError("Provide fileId or folderId", 400);
+    }
+
+    const [activities, total] = await Promise.all([
+      ActivityModel.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ActivityModel.countDocuments(query),
+    ]);
+
+    const withFolders = await this.attachFileFolderIds(activities);
+    const processed = await this.attachRestoreStatus(withFolders, lightweight);
+
+    return {
+      data: processed,
       pagination: {
         total,
         page,

@@ -5,6 +5,7 @@ interface IAttachment {
   url: string;
   mimeType: string;
   size: number;
+  location: string;
   fileId?: string;
 }
 

@@ -6,6 +6,9 @@ import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 const bodyParser = require("body-parser");
 import { startCleanupJob } from "./modules/system/services/cleanup.service";
+import http from "http";
+import { initSocket } from "./lib/socket.lib";
+import { AppError } from "./utils/AppError";
 
 const app = express();
 
@@ -18,7 +21,8 @@ const bootstrap = async () => {
   app.use(bodyParser.json({ limit: "10mb" }));
   app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
   app.use(cookieParser());
-
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(
@@ -35,14 +39,34 @@ const bootstrap = async () => {
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    })
+    }),
   );
 
   app.use("/api", apiRouter);
+
+  //#region Init server + socket =====
+  const server = http.createServer(app);
+  initSocket(server);
+  //#endregion
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json({ message: err.message });
+      }
+      console.error("[API Error]", err);
+      return res.status(500).json({ message: "Internal server error" });
+    },
+  );
+
   logEnv();
   connectDB();
   startCleanupJob();
-  app.listen(env.PORT, () => {
+  server.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
     console.log(`API URL: ${env.APP_URL}`);
   });
@@ -65,6 +89,7 @@ const logEnv = () => {
   console.log(`PORT: ${env.PORT}`);
   console.log(`APP_URL: ${env.APP_URL}`);
   console.log(`APP_TITLE: ${env.APP_TITLE}`);
+  console.log(`CLIENT_URL: ${env.CLIENT_URL}`);
   console.log(`SWAGGER_VERSION: ${env.SWAGGER_VERSION}`);
   console.log(`SWAGGER_PATH: ${env.SWAGGER_PATH}`);
   console.log(`WHITE_LISTED_DOMAINS: ${env.WHITE_LISTED_DOMAINS}`);

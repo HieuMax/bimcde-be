@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 
 export interface IAccount {
   fullName: string;
@@ -7,6 +8,13 @@ export interface IAccount {
   phone?: string;
   createdAt: Date;
   updatedAt: Date;
+  resetPasswordToken?: string;
+  resetPasswordExpire?: Date;
   // more....
 }
 
+export interface IResetPasswordStorage {
+  userId: Types.ObjectId;
+  url: string;
+  status: "open" | "closed";
+}

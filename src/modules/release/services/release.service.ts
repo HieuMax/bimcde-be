@@ -11,6 +11,12 @@ import { env } from "../../../env";
 import UserModel from "../../account/schemas/account.schema";
 import GroupModel from "../../team/schemas/group.schema";
 import GroupMemberModel from "../../team/schemas/group-member.schema";
+import {
+  assertValidReleaseName,
+  parseAndAssertFutureDueDate,
+  sanitizeReleaseName,
+  sanitizeReleaseNote,
+} from "../utils/releaseInput.validation";
 
 export default class ReleaseService {
   // 1. Tạo Release (Mặc định là DRAFT)
@@ -18,6 +24,11 @@ export default class ReleaseService {
     data: CreateReleaseDTO,
     userId: string,
   ): Promise<IRelease> {
+    const safeName = sanitizeReleaseName(data.name);
+    assertValidReleaseName(safeName);
+    const safeDescription = sanitizeReleaseNote(data.description);
+    const safeDueDate = parseAndAssertFutureDueDate(data.dueDate);
+
     const projectObjId = new Types.ObjectId(data.projectId);
 
     // Xử lý danh sách items
@@ -49,6 +60,7 @@ export default class ReleaseService {
         // Lấy thông tin người sửa từ version hoặc fallback
         const modifierName =
           (verExists.uploadedBy as any)?.fullName || "Unknown";
+        const modifierId = (verExists.uploadedBy as any)?._id;
 
         processedItems.push({
           fileId: file._id,
@@ -58,6 +70,7 @@ export default class ReleaseService {
           mimeType: verExists.mimeType,
           location: verExists.location,
           modifiedBy: modifierName, // Snapshot người sửa
+          modifiedById: modifierId,
           updatedAt: verExists.createdAt, // Snapshot ngày sửa
           tags: (file.tags as any[])?.map((t) => ({
             name: t.name,
@@ -69,11 +82,11 @@ export default class ReleaseService {
 
     const newRelease = new ReleaseModel({
       projectId: projectObjId,
-      name: data.name,
-      description: data.description,
+      name: safeName,
+      description: safeDescription,
       status: "DRAFT",
       items: processedItems,
-      dueDate: data.dueDate,
+      dueDate: safeDueDate,
       recipients: data.recipients?.map((id) => new Types.ObjectId(id)) || [],
       createdBy: new Types.ObjectId(userId),
     });
@@ -247,11 +260,18 @@ export default class ReleaseService {
       throw new AppError("Cannot update a SENT release", 400);
     }
 
-    // Map các trường cơ bản
-    if (updateData.name) release.name = updateData.name;
-    if (updateData.description !== undefined)
-      release.description = updateData.description;
-    if (updateData.dueDate) release.dueDate = updateData.dueDate;
+    // Map các trường cơ bản (sanitize giống create)
+    if (updateData.name !== undefined && updateData.name !== null) {
+      const safeName = sanitizeReleaseName(updateData.name);
+      assertValidReleaseName(safeName);
+      release.name = safeName;
+    }
+    if (updateData.description !== undefined) {
+      release.description = sanitizeReleaseNote(updateData.description);
+    }
+    if (updateData.dueDate !== undefined && updateData.dueDate !== null) {
+      release.dueDate = parseAndAssertFutureDueDate(updateData.dueDate);
+    }
 
     if (updateData.recipients) {
       release.recipients = updateData.recipients.map(
@@ -325,6 +345,42 @@ export default class ReleaseService {
 
     if (release.items.length === initialLength) {
       throw new AppError("File not found in this release", 404);
+    }
+
+    return await release.save();
+  }
+
+  // New Method: Bulk remove items from release
+  async removeItemsFromRelease(
+    releaseId: string,
+    fileIds: string[],
+    currentUser: any,
+  ) {
+    const release = await ReleaseModel.findById(releaseId);
+    if (!release) throw new AppError("Release not found", 404);
+
+    if (
+      currentUser.role !== "admin" &&
+      release.createdBy.toString() !== currentUser._id.toString()
+    ) {
+      throw new AppError(
+        "Permission denied. Only the creator or admin can modify this release.",
+        403,
+      );
+    }
+
+    if (release.status === "SENT") {
+      throw new AppError("Cannot modify a SENT release", 400);
+    }
+
+    const initialLength = release.items.length;
+    // Filter out items that match any of the provided fileIds
+    release.items = release.items.filter(
+      (item) => !fileIds.includes(item.fileId.toString()),
+    );
+
+    if (release.items.length === initialLength) {
+      throw new AppError("No items were removed (files not found in release)", 404);
     }
 
     return await release.save();
@@ -486,6 +542,7 @@ export default class ReleaseService {
 
         const modifierName =
           (verExists.uploadedBy as any)?.fullName || "Unknown";
+        const modifierId = (verExists.uploadedBy as any)?._id;
 
         processedItems.push({
           fileId: file._id,
@@ -495,6 +552,7 @@ export default class ReleaseService {
           mimeType: verExists.mimeType,
           location: verExists.location,
           modifiedBy: modifierName,
+          modifiedById: modifierId,
           updatedAt: verExists.createdAt,
           tags: (file.tags as any[])?.map((t) => ({
             name: t.name,

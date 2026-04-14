@@ -3,12 +3,15 @@ import { IAccount } from "../interfaces/account.interface";
 import Session from "../interfaces/Session";
 import bcrypt from "bcryptjs";
 import { Types } from "mongoose";
+import * as crypto from "crypto";
 import {
   generateRefreshToken,
   generateToken,
   verifyRefreshToken,
 } from "../../../utils/authUntil";
 import AccountModel from "../schemas/account.schema";
+import { sendEmail } from "../../../lib/mailer.lib";
+import { resetPasswordTemplate } from "../../../templates/templateEmail";
 
 type AccountData = Pick<IAccount, "email" | "password" | "fullName">;
 
@@ -219,5 +222,95 @@ export default class AccountService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async forgotPassword(email: string) {
+    try {
+      if (!email) {
+        throw new Error("Email là bắt buộc.");
+      }
+
+      const user = await AccountModel.findOne({ email });
+
+      // luôn trả success (tránh lộ email)
+      if (!user) {
+        return { message: "If email exists, link has been sent" };
+      }
+
+      // tạo token
+      const resetToken = crypto.randomBytes(32).toString("hex");
+
+      // hash token để lưu DB
+      const hashedToken = crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+
+      user.resetPasswordToken = hashedToken;
+      user.resetPasswordExpire = new Date(Date.now() + 15 * 60 * 1000); // 15 phút
+
+      await user.save();
+
+      const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
+      console.log(resetLink);
+      const html = resetPasswordTemplate(resetLink);
+
+      await sendEmail(user.email, "Reset Password", html);
+      return { message: "If email exists, link has been sent" };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    try {
+      if (!token || !newPassword) {
+        throw new Error("Thiếu dữ liệu.");
+      }
+
+      const hashedToken = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+      const user = await AccountModel.findOne({
+        resetPasswordToken: hashedToken,
+        resetPasswordExpire: { $gt: new Date() },
+      });
+
+      if (!user) {
+        throw new Error("Token không hợp lệ hoặc đã hết hạn.");
+      }
+
+      if (newPassword.length < 6) {
+        throw new Error("Mật khẩu phải >= 6 ký tự.");
+      }
+
+      user.password = await bcrypt.hash(newPassword, 10);
+
+      // clear token
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+
+      await user.save();
+
+      // optional: logout all session
+      await Session.deleteMany({ userId: user._id });
+
+      return { message: "Đặt lại mật khẩu thành công." };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async verifyResetToken(token: string) {
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await AccountModel.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: new Date() },
+    });
+
+    return { valid: !!user };
   }
 }

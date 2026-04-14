@@ -11,6 +11,7 @@ export const authenticate = async (
 ) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
+    console.log("❌ [AUTHENTICATE] Missing or invalid Authorization header");
     res.status(401).json({
       code: "AuthenticationError",
       message: "Truy cập bị từ chối. Vui lòng đăng nhập.",
@@ -19,7 +20,6 @@ export const authenticate = async (
   }
 
   const [_, token] = authHeader.split(" ");
-
   try {
     // 1. Verify Token
     const jwtPayload = verifyAccessToken(token) as { userId: Types.ObjectId };
@@ -44,6 +44,7 @@ export const authenticate = async (
 
     next();
   } catch (error) {
+    console.log("❌ [AUTHENTICATE] Token validation error:", error);
     if (error instanceof TokenExpiredError) {
       return res.status(401).json({
         success: false,
@@ -62,3 +63,5 @@ export const authenticate = async (
     });
   }
 };
+
+// bimcde-be\src\middlewares\authMiddlewares.ts

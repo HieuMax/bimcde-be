@@ -1,15 +1,18 @@
 import TodoModel from "../schemas/todo.schema";
-import { IAttachment, ITodo } from "../interfaces/todo.interface";
+import { IAssigness, IAttachment, ITag, ITodo } from "../interfaces/todo.interface";
 import { AppError } from "../../../utils/AppError";
 import { Types } from "mongoose";
 
 export default class TodoService {
   // --- GET ALL TODOS BY PROJECT ---
-  async getAllTodos(projectId: string, filters?: {
-    status?: string;
-    assignee?: string;
-    priority?: string;
-  }): Promise<ITodo[]> {
+  async getAllTodos(
+    projectId: string,
+    filters?: {
+      status?: string;
+      assignee?: string;
+      priority?: string;
+    },
+  ): Promise<ITodo[]> {
     const query: any = { projectId: new Types.ObjectId(projectId) };
 
     if (filters?.status) {
@@ -50,9 +53,18 @@ export default class TodoService {
     status?: "New" | "In Progress" | "Done" | "Closed";
     priority?: "high" | "normal" | "low";
     completion?: number;
-    assignees?: string[];
-    type?: "undefined" | "comment" | "issue" | "request" | "fault" | "inquiry" | "solution" | "remark" | "clash";
-    tags?: string[];
+    assignees?: IAssigness[];
+    type?:
+      | "undefined"
+      | "comment"
+      | "issue"
+      | "request"
+      | "fault"
+      | "inquiry"
+      | "solution"
+      | "remark"
+      | "clash";
+    tags?: ITag[];
     dueDate?: Date;
     projectId: string;
     createdBy: string;
@@ -84,7 +96,11 @@ export default class TodoService {
   }
 
   // --- UPDATE TODO ---
-  async updateTodo(id: string, data: Partial<ITodo>, userId: string): Promise<ITodo> {
+  async updateTodo(
+    id: string,
+    data: Partial<ITodo>,
+    userId: string,
+  ): Promise<ITodo> {
     const todo = await TodoModel.findById(id);
 
     if (!todo) {
@@ -97,7 +113,7 @@ export default class TodoService {
     const updatedTodo = await TodoModel.findByIdAndUpdate(
       id,
       { ...data },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     )
       .populate("createdBy", "fullName email")
       .exec();
@@ -105,6 +121,7 @@ export default class TodoService {
     if (!updatedTodo) {
       throw new AppError("Todo not found", 404);
     }
+    
 
     return updatedTodo;
   }
@@ -126,11 +143,14 @@ export default class TodoService {
   }
 
   // --- UPDATE TODO STATUS ---
-  async updateTodoStatus(id: string, status: "New" | "In Progress" | "Done" | "Closed"): Promise<ITodo> {
+  async updateTodoStatus(
+    id: string,
+    status: "New" | "In Progress" | "Done" | "Closed",
+  ): Promise<ITodo> {
     const todo = await TodoModel.findByIdAndUpdate(
       id,
       { status },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     )
       .populate("createdBy", "fullName email")
       .exec();

@@ -5,7 +5,21 @@ import ActivityService from "../modules/activity/services/activity.service";
 const activityService = new ActivityService();
 
 export const auditLog = (
-  actionGroup: "FOLDER" | "FILE" | "MEMBER" | "VIEW" | "RELEASE" | "TOPIC",
+  actionGroup:
+    | "FOLDER"
+    | "FILE"
+    | "MEMBER"
+    | "VIEW"
+    | "RELEASE"
+    | "TOPIC"
+    | "TAG"
+    | "PROJECT"
+    | "PERMISSION"
+    | "TODO"
+    | "GROUP"
+    | "COMMENT"
+    | "RESTORE"
+    | "CLASH",
   actionType: string,
   getTargetInfo: (
     req: Request,

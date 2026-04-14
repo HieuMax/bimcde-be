@@ -15,6 +15,13 @@ const ViewSchema = new Schema(
     description: String,
     thumbnailUrl: { type: String }, // URL ảnh snapshot từ S3/R2
 
+    tags: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Tag",
+      },
+    ],
+
     // Phân loại
     type: {
       type: String,

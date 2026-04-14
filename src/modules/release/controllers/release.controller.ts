@@ -125,11 +125,37 @@ ReleaseController.get(
   }),
 );
 
+// DELETE /api/releases/:id/items (Bulk remove items)
+ReleaseController.delete(
+  "/:id/items",
+  authenticate,
+  auditLog("RELEASE", "ITEMS_REMOVE_BULK", (req, resBody) => ({
+    itemId: req.params.id,
+    itemName: "Bulk Remove Items from Release",
+    itemModel: "Release",
+  })),
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { fileIds } = req.body; // Expecting { fileIds: string[] }
+    
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+       throw new AppError("fileIds array is required", 400);
+    }
+
+    const updatedRelease = await releaseService.removeItemsFromRelease(
+      req.params.id,
+      fileIds,
+      user,
+    );
+    res.json(updatedRelease);
+  }),
+);
+
 // DELETE /api/releases/:id/items/:fileId (Remove item from Release)
 ReleaseController.delete(
   "/:id/items/:fileId",
   authenticate,
-  auditLog("RELEASE", "UPDATE", (req, resBody) => ({
+  auditLog("RELEASE", "ITEM_REMOVE", (req, resBody) => ({
     itemId: req.params.id,
     itemName: "Remove Item from Release",
     itemModel: "Release",

@@ -1,10 +1,17 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { authenticate } from "../../../middlewares/authMiddlewares"; // Giả sử bạn có middleware xác thực người dùng
 import PermissionsService from "../services/permissions.services"; // Import service
+import { asyncHandler } from "../../../utils/asyncHandler";
+import ItemAclService from "../services/item-acl.service";
+import {
+  actorFromReq,
+  logActivitySafe,
+} from "../../activity/utils/auditActivity.helpers";
 
 const PermissionsController = express.Router();
 
 const permissionsService = new PermissionsService();
+const itemAclService = new ItemAclService();
 
 // Lấy permissions theo projectId
 PermissionsController.get("/get/:projectId", authenticate, async (req, res) => {
@@ -39,6 +46,23 @@ PermissionsController.put(
         req.userId // Truyền userId từ middleware authenticate
       );
 
+      const actor = actorFromReq(req);
+      if (actor) {
+        await logActivitySafe({
+          projectId: req.params.projectId,
+          actor,
+          actionGroup: "PERMISSION",
+          actionType: "PROJECT_SETTINGS_UPDATE",
+          target: {
+            itemId: req.params.projectId,
+            itemModel: "Project",
+            itemName: "Project permissions",
+          },
+          description: "Updated project-level permission flags",
+          metaData: req.body,
+        });
+      }
+
       res.status(200).json({
         success: true,
         message: "Cập nhật quyền dự án thành công.",
@@ -52,6 +76,73 @@ PermissionsController.put(
       });
     }
   }
+);
+
+/** Per-folder / per-file ACL (explorer permissions dialog). */
+PermissionsController.get(
+  "/item/:projectId/:resourceType/:resourceId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await itemAclService.getItemAcl(
+      req.params.projectId,
+      req.params.resourceType,
+      req.params.resourceId,
+      req.userId
+    );
+    res.status(200).json({
+      success: true,
+      message: "OK",
+      result,
+    });
+  })
+);
+
+PermissionsController.put(
+  "/item/:projectId/:resourceType/:resourceId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await itemAclService.upsertItemAcl(
+      req.params.projectId,
+      req.params.resourceType,
+      req.params.resourceId,
+      req.userId,
+      {
+        defaultAccess: req.body.defaultAccess,
+        inheritFromParent: req.body.inheritFromParent,
+        explicitGrants: req.body.explicitGrants ?? [],
+      }
+    );
+    const actor = actorFromReq(req);
+    const rt = String(req.params.resourceType).toLowerCase();
+    const itemModel =
+      rt === "folder" ? ("Folder" as const) : ("File" as const);
+    if (actor) {
+      await logActivitySafe({
+        projectId: req.params.projectId,
+        actor,
+        actionGroup: "PERMISSION",
+        actionType: "ITEM_ACL_UPDATE",
+        target: {
+          itemId: req.params.resourceId,
+          itemModel,
+          itemName: `${rt} ACL`,
+        },
+        description: `Updated access control for ${rt} ${req.params.resourceId}`,
+        metaData: {
+          defaultAccess: req.body.defaultAccess,
+          inheritFromParent: req.body.inheritFromParent,
+          grantCount: Array.isArray(req.body.explicitGrants)
+            ? req.body.explicitGrants.length
+            : 0,
+        },
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Permissions updated.",
+      result,
+    });
+  })
 );
 
 export { PermissionsController };
