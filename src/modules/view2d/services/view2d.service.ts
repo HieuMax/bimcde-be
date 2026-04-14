@@ -13,6 +13,7 @@ export default class View2DService {
       scale: number;
       rotation: number;
       previewSrc?: string;
+      viewState?: any;
   }) {
     try {
       console.log("💾 [VIEW SERVICE] Creating view with payload:", payload);
@@ -28,6 +29,7 @@ export default class View2DService {
           scale: payload.scale ?? 1,
           rotation: payload.rotation ?? 0,
           previewSrc: payload.previewSrc,
+          viewState: payload.viewState,
         });
 
       return await newView.populate([
