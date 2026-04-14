@@ -26,6 +26,7 @@ View2DController.post(
       scale, 
       rotation, 
       previewSrc,
+      viewState,
       createdBy,
       updatedBy
     } = req.body;
@@ -57,6 +58,7 @@ View2DController.post(
       scale: Number(scale),
       rotation: Number(rotation),
       previewSrc,
+      viewState,
       // createdBy,
       // updatedBy
     });
@@ -112,7 +114,7 @@ View2DController.put(
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, viewState } = req.body;
 
     const userId = (req as any).userId;
     if (!userId) {
@@ -121,7 +123,7 @@ View2DController.put(
 
     const updated = await view2dService.updateView(
       id,
-      { name, description },
+      { name, description, viewState },
       userId
     );
 
