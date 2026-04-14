@@ -89,7 +89,6 @@ export default class ProjectService {
       const topicsService = new TopicsService();
       await topicsService.createTopicDefault(createdProject._id);
       console.log("✅ [PROJECT SERVICE] Default topics created");
-      await topicsService.createTopicItemsDefault(createdProject._id);
 
       await ensureCdeRootsInitialized(
         createdProject._id.toString(),

@@ -203,6 +203,12 @@ const TodoSchema = new Schema<ITodo>(
       ref: "Project",
       required: [true, "Project ID is required"],
     },
+    /** Optional link to BCF topic instance (TopicItem). */
+    topicItemId: {
+      type: Schema.Types.ObjectId,
+      ref: "TopicItem",
+      default: null,
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "Account",

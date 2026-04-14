@@ -94,9 +94,45 @@ const TopicItemSchema = new Schema<ITopicItem>(
       ref: "Account",
       default: null,
     },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
+
+    /** 3D viewer: saved camera/context (same collection as dashboard topics). */
+    viewState: { type: Schema.Types.Mixed, default: null },
+    items: [
+      {
+        fileUrl: { type: String },
+        modelId: { type: String },
+        expressId: [{ type: String }],
+      },
+    ],
+    snapshots: [
+      {
+        thumbnailUrl: { type: String },
+        viewState: { type: Schema.Types.Mixed },
+        items: [{ type: Schema.Types.Mixed }],
+      },
+    ],
+    /** File references (ObjectIds) — explorer-linked files; separate from URL attachments. */
+    references: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "File",
+      },
+    ],
   },
   { timestamps: true },
 );
+
+TopicItemSchema.pre("save", function (next) {
+  if (this.isModified("viewState")) {
+    this.markModified("viewState");
+  }
+  next();
+});
 
 TopicItemSchema.index({ projectId: 1, updatedAt: -1 });
 TopicItemSchema.index({ projectId: 1, fileId: 1 }, { sparse: true });

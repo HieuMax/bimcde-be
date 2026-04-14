@@ -12,6 +12,7 @@ import {
 } from "../../../constants/cde-workflow";
 import { ensureCdeRootsInitialized } from "../../folder/services/cde-root-init.service";
 import CdeAccessService from "../../permission/services/cde-access.service";
+import { classifyIsoWipDirectPromoteMode } from "../../file/utils/iso-wip-promote-mode";
 
 const cdeAccess = new CdeAccessService();
 
@@ -19,7 +20,7 @@ export default class ExplorerService {
   private folderStageCache = new Map<string, CdeFolderStage | null>();
 
   private async getCdeRootStageFromFolderId(
-    folderId: string
+    folderId: string,
   ): Promise<CdeFolderStage | null> {
     if (this.folderStageCache.has(folderId)) {
       return this.folderStageCache.get(folderId) ?? null;
@@ -28,8 +29,7 @@ export default class ExplorerService {
       _id: folderId,
       isDeleted: false,
     }).lean();
-    const chain: Array<{ isCdeRoot?: boolean; cdeStage?: CdeFolderStage }> =
-      [];
+    const chain: Array<{ isCdeRoot?: boolean; cdeStage?: CdeFolderStage }> = [];
     while (current) {
       chain.unshift(current);
       if (!current.parentId) break;
@@ -46,7 +46,7 @@ export default class ExplorerService {
 
   /** First groupId found walking from this folder up toward project root (matches ISO effective group). */
   private async getEffectiveGroupIdFromFolderId(
-    folderId: string
+    folderId: string,
   ): Promise<string | null> {
     let current = await FolderModel.findOne({
       _id: folderId,
@@ -69,19 +69,19 @@ export default class ExplorerService {
 
   private async getCdeCapabilities(
     projectId: string,
-    userId: Types.ObjectId
+    userId: Types.ObjectId,
   ): Promise<{
     isProjectAdmin: boolean;
     isGroupLeader: boolean;
     leaderGroupIds: string[];
   }> {
-    const pm = await projectMemberSchema
-      .findOne({ projectId, userId })
-      .lean();
-    const isProjectAdmin =
-      String(pm?.role ?? "").toLowerCase() === "admin";
+    const pm = await projectMemberSchema.findOne({ projectId, userId }).lean();
+    const isProjectAdmin = String(pm?.role ?? "").toLowerCase() === "admin";
     const pid = new Types.ObjectId(projectId);
-    const groups = await groupModel.find({ projectId: pid }).select("_id").lean();
+    const groups = await groupModel
+      .find({ projectId: pid })
+      .select("_id")
+      .lean();
     const gids = groups.map((g) => g._id);
     const leaders = await groupMemberModel
       .find({
@@ -104,7 +104,7 @@ export default class ExplorerService {
   /** Descendant folder ids only (not root), via parentId — path regex misses direct children. */
   private async getDescendantFolderIds(
     rootFolderId: Types.ObjectId,
-    projectObjId: Types.ObjectId
+    projectObjId: Types.ObjectId,
   ): Promise<Types.ObjectId[]> {
     const res = await FolderModel.aggregate([
       {
@@ -150,7 +150,7 @@ export default class ExplorerService {
     sortBy: string = "name",
     sortOrder: "asc" | "desc" = "asc",
     userId?: Types.ObjectId,
-    restrictMoveToEffectiveGroupId?: string | null
+    restrictMoveToEffectiveGroupId?: string | null,
   ) {
     this.folderStageCache.clear();
 
@@ -165,12 +165,7 @@ export default class ExplorerService {
     }
 
     if (folderId && userId) {
-      await cdeAccess.assertFolderAccess(
-        projectId,
-        userId,
-        folderId,
-        "browse"
-      );
+      await cdeAccess.assertFolderAccess(projectId, userId, folderId, "browse");
     }
 
     const projectObjId = new Types.ObjectId(projectId);
@@ -204,8 +199,7 @@ export default class ExplorerService {
           (p.cdeStage === "WIP" || p.cdeStage === "SHARED")
         );
       }
-      currentFolder =
-        cf != null ? { ...cf, isGroupHomeFolder } : null;
+      currentFolder = cf != null ? { ...cf, isGroupHomeFolder } : null;
 
       if (currentFolder?.path) {
         const ancestorIds = currentFolder.path.split(",").filter(Boolean);
@@ -220,7 +214,7 @@ export default class ExplorerService {
 
           // Sắp xếp lại theo đúng thứ tự path
           const folderMap = new Map(
-            foldersFound.map((f) => [f._id.toString(), f])
+            foldersFound.map((f) => [f._id.toString(), f]),
           );
           ancestors = ancestorIds
             .map((id) => folderMap.get(id))
@@ -266,7 +260,7 @@ export default class ExplorerService {
       const sizePromises = subFolders.map(async (folder) => {
         const descendantIds = await this.getDescendantFolderIds(
           folder._id as Types.ObjectId,
-          projectObjId
+          projectObjId,
         );
         const allIds = [folder._id, ...descendantIds];
 
@@ -318,13 +312,13 @@ export default class ExplorerService {
         mergedFolders = await cdeAccess.annotateExplorerIso(
           projectId,
           userId,
-          foldersWithStats as Array<Record<string, unknown>>
+          foldersWithStats as Array<Record<string, unknown>>,
         );
       } else {
         mergedFolders = await cdeAccess.annotateExplorerNormal(
           projectId,
           userId,
-          foldersWithStats as Array<Record<string, unknown>>
+          foldersWithStats as Array<Record<string, unknown>>,
         );
       }
     }
@@ -356,22 +350,34 @@ export default class ExplorerService {
           );
         }
 
+        const isoParent = f.isoRevokeOriginalParentId as
+          | Types.ObjectId
+          | undefined
+          | null;
         return {
           ...f,
           parentCdeRootStage,
           effectiveGroupId,
           isGroupHomeFolder,
+          isoRevokeOriginalParentId: isoParent ? isoParent.toString() : null,
         };
-      })
+      }),
     );
 
     let locationName = "";
     if (folderId && currentFolder) {
       locationName = currentFolder.name;
     } else {
-      const project = await ProjectModel.findById(projectId).select("name").lean();
+      const project = await ProjectModel.findById(projectId)
+        .select("name")
+        .lean();
       locationName = project?.name || "Project Root";
     }
+
+    const wf = await ProjectModel.findById(projectId)
+      .select("workflowMode")
+      .lean();
+    const workflowMode = parseCdeWorkflowMode(wf?.workflowMode) ?? "NORMAL";
 
     const processedFiles = await Promise.all(
       files.map(async (file) => {
@@ -382,18 +388,38 @@ export default class ExplorerService {
         let effectiveGroupId: string | null = null;
         if (file.folderId) {
           parentCdeRootStage = await this.getCdeRootStageFromFolderId(
-            file.folderId.toString()
+            file.folderId.toString(),
           );
           effectiveGroupId = await this.getEffectiveGroupIdFromFolderId(
-            file.folderId.toString()
+            file.folderId.toString(),
           );
         }
 
+        let wipDirectPromoteMode: string | undefined;
+        if (
+          workflowMode === "ISO_19650" &&
+          parentCdeRootStage === "WIP" &&
+          effectiveGroupId &&
+          Types.ObjectId.isValid(effectiveGroupId)
+        ) {
+          wipDirectPromoteMode = await classifyIsoWipDirectPromoteMode(
+            projectId,
+            new Types.ObjectId(effectiveGroupId),
+            file as any,
+          );
+        }
+
+        const isoOrigFolder = (
+          file as { isoRevokeOriginalFolderId?: Types.ObjectId | null }
+        ).isoRevokeOriginalFolderId;
         return {
           _id: file._id,
           name: file.name,
           createdBy: file.createdBy ? file.createdBy.toString() : undefined,
           folderId: file.folderId,
+          isoRevokeOriginalFolderId: isoOrigFolder
+            ? isoOrigFolder.toString()
+            : null,
           locationName: locationName,
           currentVersion: file.currentVersion,
           workflowStatus: file.workflowStatus,
@@ -413,6 +439,7 @@ export default class ExplorerService {
           cdeStage: file.cdeStage,
           parentCdeRootStage,
           effectiveGroupId,
+          ...(wipDirectPromoteMode ? { wipDirectPromoteMode } : {}),
           versions: file.versions.map((v) => ({
             version: v.version,
             fileName: v.fileName,
@@ -428,13 +455,8 @@ export default class ExplorerService {
               : "Unknown",
           })),
         };
-      })
+      }),
     );
-
-    const wf = await ProjectModel.findById(projectId)
-      .select("workflowMode")
-      .lean();
-    const workflowMode = parseCdeWorkflowMode(wf?.workflowMode) ?? "NORMAL";
 
     let cdeCapabilities: {
       isProjectAdmin: boolean;
@@ -450,12 +472,10 @@ export default class ExplorerService {
     }
 
     let subFoldersOut = processedFolders;
-    if (
-      restrictMoveToEffectiveGroupId &&
-      workflowMode === "ISO_19650"
-    ) {
+    if (restrictMoveToEffectiveGroupId && workflowMode === "ISO_19650") {
       subFoldersOut = processedFolders.filter((f) => {
-        const eff = (f as { effectiveGroupId?: string | null }).effectiveGroupId;
+        const eff = (f as { effectiveGroupId?: string | null })
+          .effectiveGroupId;
         if (eff == null || eff === "") return true;
         return eff === restrictMoveToEffectiveGroupId;
       });
@@ -479,7 +499,7 @@ export default class ExplorerService {
     projectId: string,
     groupId: string,
     cdeStage: string,
-    userId: Types.ObjectId
+    userId: Types.ObjectId,
   ): Promise<{ folderId: string | null }> {
     if (!Types.ObjectId.isValid(groupId)) {
       return { folderId: null };
@@ -519,7 +539,7 @@ export default class ExplorerService {
       projectId,
       userId,
       home._id.toString(),
-      "browse"
+      "browse",
     );
 
     return { folderId: home._id.toString() };
@@ -529,7 +549,7 @@ export default class ExplorerService {
   async getCdeRootFolderId(
     projectId: string,
     cdeStage: string,
-    userId: Types.ObjectId
+    userId: Types.ObjectId,
   ): Promise<{ folderId: string | null }> {
     const stage = CDE_FOLDER_STAGES.includes(cdeStage as CdeFolderStage)
       ? (cdeStage as CdeFolderStage)
@@ -555,7 +575,7 @@ export default class ExplorerService {
       projectId,
       userId,
       root._id.toString(),
-      "browse"
+      "browse",
     );
 
     return { folderId: root._id.toString() };
@@ -570,14 +590,9 @@ export default class ExplorerService {
   async getFolderSubtreeActivity(
     projectId: string,
     folderId: string,
-    userId: Types.ObjectId
+    userId: Types.ObjectId,
   ): Promise<{ lastModifiedAt: string | null; lastModifiedBy: string | null }> {
-    await cdeAccess.assertFolderAccess(
-      projectId,
-      userId,
-      folderId,
-      "browse"
-    );
+    await cdeAccess.assertFolderAccess(projectId, userId, folderId, "browse");
 
     const projectObjId = new Types.ObjectId(projectId);
     const parentObjId = new Types.ObjectId(folderId);
@@ -751,8 +766,12 @@ export default class ExplorerService {
     const agg = await FolderModel.aggregate(pipeline).allowDiskUse(true);
     const facet = agg[0] as
       | {
-          latestFile?: Array<{ doc?: { updatedAt?: Date; lastModifiedBy?: string } | null }>;
-          latestFolder?: Array<{ doc?: { updatedAt?: Date; lastModifiedBy?: string } | null }>;
+          latestFile?: Array<{
+            doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
+          }>;
+          latestFolder?: Array<{
+            doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
+          }>;
         }
       | undefined;
 

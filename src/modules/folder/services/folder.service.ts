@@ -225,6 +225,20 @@ export default class FolderService {
       "delete"
     );
 
+    const wfDel = await projectSchema
+      .findById(folder.projectId)
+      .select("workflowMode")
+      .lean();
+    if (parseCdeWorkflowMode(wfDel?.workflowMode) === "ISO_19650") {
+      const stage = await cdeAccess.getIsoCdeRootStageForFolderId(folderId);
+      if (stage === "SHARED" || stage === "PUBLISHED") {
+        throw new AppError(
+          "In ISO 19650 mode, use Revoke instead of delete for folders in Shared or Published.",
+          403
+        );
+      }
+    }
+
     // Find all descendants by path prefix
     const prefix = folder.path
       ? `${folder.path},${folder._id}`

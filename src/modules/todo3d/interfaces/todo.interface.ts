@@ -51,6 +51,8 @@ export interface ITodo extends Document {
     | "clash";
   dueDate?: Date;
   projectId: mongoose.Types.ObjectId;
+  /** Parent TopicItem (optional; same collection as BCF topics). */
+  topicId?: mongoose.Types.ObjectId | null;
   createdBy: mongoose.Types.ObjectId;
   items?: {
     fileUrl: string;

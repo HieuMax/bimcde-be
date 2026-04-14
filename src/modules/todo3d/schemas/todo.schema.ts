@@ -101,6 +101,12 @@ const TodoSchema = new Schema<ITodo>(
       ref: "Project",
       required: [true, "Project ID is required"],
     },
+    /** Optional parent topic (TopicItem — same collection as BCF /topics). */
+    topicId: {
+      type: Schema.Types.ObjectId,
+      ref: "TopicItem",
+      default: null,
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "Account",
@@ -118,6 +124,7 @@ TodoSchema.pre("save", function (next) {
 });
 
 TodoSchema.index({ projectId: 1, status: 1, createdAt: -1 });
+TodoSchema.index({ topicId: 1, status: 1 });
 TodoSchema.index({ createdBy: 1 });
 TodoSchema.index({ assignees: 1 });
 

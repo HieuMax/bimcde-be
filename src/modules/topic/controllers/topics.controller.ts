@@ -119,45 +119,130 @@ TopicsController.post(
   }),
 );
 
-// Update a topic item
-TopicsController.put(
-  "/items/:topicItemId",
+const handleUpdateTopicItem = async (req: Request, res: Response) => {
+  const { topicItemId } = req.params;
+  const payload = req.body;
+  const result = await topicsService.updateTopicItem(
+    req.userId,
+    topicItemId,
+    payload,
+  );
+  const actor = actorFromReq(req);
+  if (actor && result && (result as { _id?: unknown })._id) {
+    const r = result as unknown as {
+      _id: unknown;
+      projectId: unknown;
+      title?: string;
+      code?: string;
+    };
+    await logActivitySafe({
+      projectId: projectIdToString(r.projectId),
+      actor,
+      actionGroup: "TOPIC",
+      actionType: "UPDATE",
+      target: {
+        itemId: String(r._id),
+        itemModel: "Topic",
+        itemName: String(r.title ?? "Topic"),
+      },
+      description: `Updated topic "${String(r.title ?? "")}"`,
+      metaData: { fields: Object.keys(payload ?? {}) },
+    });
+  }
+  res.status(200).json({
+    success: true,
+    message: "Topic updated successfully",
+    result,
+  });
+};
+
+// IFC viewer + legacy 3D client: same TopicItem collection as /items/getAll
+TopicsController.get(
+  "/items/viewer/:projectId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.params;
+    const { status, search } = req.query;
+    const topics = await topicsService.getTopicItemsForViewer(
+      req.userId,
+      projectId,
+      {
+        status: status ? String(status) : undefined,
+        search: search ? String(search) : undefined,
+      },
+    );
+    res.json(topics);
+  }),
+);
+
+TopicsController.get(
+  "/items/linkable/:projectId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId } = req.params;
+    const topics = await topicsService.getLinkableTopicItemsForUser(
+      projectId,
+      req.userId,
+    );
+    res.json(topics);
+  }),
+);
+
+TopicsController.get(
+  "/items/open-linked-todos-count/:topicItemId",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { topicItemId } = req.params;
-    const payload = req.body;
-    const result = await topicsService.updateTopicItem(
+    const count =
+      await topicsService.getOpenLinkedTodoCountForTopicItem(topicItemId);
+    res.json({ count });
+  }),
+);
+
+TopicsController.get(
+  "/items/detail/:topicItemId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+    const topic = await topicsService.getTopicItemDetailForViewer(
       req.userId,
       topicItemId,
-      payload,
+    );
+    res.json(topic);
+  }),
+);
+
+TopicsController.post(
+  "/items/:topicItemId/snapshots",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+    const updated = await topicsService.addTopicItemSnapshot(
+      req.userId,
+      topicItemId,
+      req.body ?? {},
     );
     const actor = actorFromReq(req);
-    if (actor && result && (result as { _id?: unknown })._id) {
-      const r = result as unknown as {
+    if (actor && updated && (updated as { _id?: unknown })._id) {
+      const r = updated as unknown as {
         _id: unknown;
         projectId: unknown;
         title?: string;
-        code?: string;
       };
       await logActivitySafe({
         projectId: projectIdToString(r.projectId),
         actor,
         actionGroup: "TOPIC",
-        actionType: "UPDATE",
+        actionType: "SNAPSHOT_ADD",
         target: {
           itemId: String(r._id),
           itemModel: "Topic",
           itemName: String(r.title ?? "Topic"),
         },
-        description: `Updated topic "${String(r.title ?? "")}"`,
-        metaData: { fields: Object.keys(payload ?? {}) },
+        description: "Added topic snapshot (viewer)",
       });
     }
-    res.status(200).json({
-      success: true,
-      message: "Topic updated successfully",
-      result,
-    });
+    res.json(updated);
   }),
 );
 
@@ -281,6 +366,50 @@ TopicsController.delete(
       });
     }
   },
+);
+
+// Generic item routes last (avoid shadowing /items/viewer, /items/detail, etc.)
+TopicsController.put(
+  "/items/:topicItemId",
+  authenticate,
+  asyncHandler(handleUpdateTopicItem),
+);
+
+TopicsController.patch(
+  "/items/:topicItemId",
+  authenticate,
+  asyncHandler(handleUpdateTopicItem),
+);
+
+TopicsController.delete(
+  "/items/:topicItemId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+    const existing = await topicsService.getTopicItemDetailForViewer(
+      req.userId,
+      topicItemId,
+    );
+    await topicsService.deleteTopicItem(req.userId, topicItemId);
+    const actor = actorFromReq(req);
+    if (actor && existing && (existing as { _id?: unknown })._id) {
+      await logActivitySafe({
+        projectId: projectIdToString(
+          (existing as { projectId: unknown }).projectId,
+        ),
+        actor,
+        actionGroup: "TOPIC",
+        actionType: "DELETE",
+        target: {
+          itemId: String((existing as { _id: unknown })._id),
+          itemModel: "Topic",
+          itemName: String((existing as { title?: string }).title ?? "Topic"),
+        },
+        description: "Deleted topic",
+      });
+    }
+    res.json({ message: "Topic deleted successfully" });
+  }),
 );
 
 export default TopicsController;

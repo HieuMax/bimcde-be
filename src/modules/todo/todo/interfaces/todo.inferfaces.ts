@@ -101,6 +101,7 @@ export interface ITodo extends Document {
   type: IType;
   dueDate?: Date;
   projectId: mongoose.Types.ObjectId;
+  topicItemId?: mongoose.Types.ObjectId | null;
   createdBy: mongoose.Types.ObjectId;
   items?: {
     fileUrl: string;

@@ -78,6 +78,7 @@ TodoController.post(
       tags,
       dueDate,
       projectId,
+      topicItemId,
       items,
       viewState,
       attachments,
@@ -108,6 +109,10 @@ TodoController.post(
       dueDate: dueDate ? new Date(dueDate) : undefined,
       projectId,
       createdBy,
+      topicItemId:
+        topicItemId !== undefined && topicItemId !== null && topicItemId !== ""
+          ? String(topicItemId)
+          : undefined,
       items,
       viewState,
       attachments,

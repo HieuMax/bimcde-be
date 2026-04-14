@@ -26,10 +26,35 @@ import {
   countNonTerminalTodosForTopic,
   isTopicResolutionStatus,
 } from "../utils/topic-todo-collaboration.helpers";
+import {
+  userCanSeeTopicItemForLink,
+  LINKABLE_TOPIC_ITEM_STATUSES,
+  countOpenTodosLinkedToTopicItem,
+} from "../utils/topic-item-link.helpers";
 
 const TOPIC_ATTACHMENTS_MAX = 50;
 
 export default class TopicsService {
+  /** Viewer / legacy 3D API: expose `topicKey` + `createdBy` aliases. */
+  private formatTopicItemForViewer(
+    doc: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    if (!doc) return null;
+    const o = { ...doc } as Record<string, unknown>;
+    o.topicKey = o.code ?? o.topicKey;
+    o.createdBy = o.authorUserId ?? o.createdBy;
+    return o;
+  }
+
+  private normalizeReferenceIds(raw: unknown): Types.ObjectId[] {
+    if (!Array.isArray(raw)) return [];
+    const ids: Types.ObjectId[] = [];
+    for (const id of raw) {
+      const s = String(id ?? "");
+      if (Types.ObjectId.isValid(s)) ids.push(new Types.ObjectId(s));
+    }
+    return ids;
+  }
   private async getActorRole(
     projectId: string | Types.ObjectId,
     userId: Types.ObjectId | undefined
@@ -309,6 +334,19 @@ export default class TopicsService {
       /** Primary file this topic is about (recommended for ISO gate) */
       fileId?: string;
       linkedFileVersion?: number;
+      viewState?: unknown;
+      items?: Array<{
+        fileUrl?: string;
+        modelId?: string;
+        expressId?: string[];
+      }>;
+      snapshots?: Array<{
+        thumbnailUrl?: string;
+        viewState?: unknown;
+        items?: unknown[];
+      }>;
+      references?: string[];
+      thumbnailUrl?: string;
     },
   ) {
     const actorRole = await this.getActorRole(projectId, userId);
@@ -342,6 +380,10 @@ export default class TopicsService {
         ? payload.linkedFileVersion
         : null;
 
+    const refIds = this.normalizeReferenceIds(payload.references);
+    const viewerItems = Array.isArray(payload.items) ? payload.items : [];
+    const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
+
     const doc = await TopicItemModel.create({
       projectId: new Types.ObjectId(projectId),
       code,
@@ -357,14 +399,30 @@ export default class TopicsService {
       authorUserId: userId ?? null,
       fileId,
       linkedFileVersion,
-      thumbnailUrl: "",
+      thumbnailUrl:
+        typeof payload.thumbnailUrl === "string"
+          ? payload.thumbnailUrl
+          : "",
+      viewState: payload.viewState ?? null,
+      items: viewerItems,
+      snapshots,
+      references: refIds,
       stats: { comments: 0, viewpoints: 0, attachments: 0 },
       attachments: [],
       createdAt: now,
       updatedAt: now,
     });
 
-    return doc.toObject();
+    const populated = await TopicItemModel.findById(doc._id)
+      .populate("authorUserId", "fullName email")
+      .populate("updatedBy", "fullName email")
+      .populate("references", "name currentVersion")
+      .lean();
+
+    return (
+      this.formatTopicItemForViewer(populated as Record<string, unknown>) ??
+      (populated as Record<string, unknown>)
+    );
   }
 
   async updateTopicItem(
@@ -379,6 +437,14 @@ export default class TopicsService {
       priority?: string;
       tags?: string[];
       dueDate?: Date | null;
+      viewState?: unknown;
+      items?: Array<{
+        fileUrl?: string;
+        modelId?: string;
+        expressId?: string[];
+      }>;
+      thumbnailUrl?: string;
+      references?: string[];
     },
   ) {
     const topicItem = await TopicItemModel.findById(topicItemId);
@@ -439,9 +505,185 @@ export default class TopicsService {
       topicItem.dueDate = d === null || d === undefined ? undefined : d;
     }
 
+    if (payload.viewState !== undefined) {
+      topicItem.set("viewState", payload.viewState);
+      topicItem.markModified("viewState");
+    }
+    if (payload.items !== undefined) {
+      topicItem.items = payload.items as typeof topicItem.items;
+    }
+    if (payload.thumbnailUrl !== undefined) {
+      topicItem.thumbnailUrl = String(payload.thumbnailUrl);
+    }
+    if (payload.references !== undefined) {
+      topicItem.references = this.normalizeReferenceIds(payload.references);
+    }
+
+    if (userId) topicItem.updatedBy = userId;
+
     await topicItem.save();
 
-    return topicItem.toObject();
+    const populated = await TopicItemModel.findById(topicItem._id)
+      .populate("authorUserId", "fullName email")
+      .populate("updatedBy", "fullName email")
+      .populate("references", "name currentVersion")
+      .lean();
+
+    return (
+      this.formatTopicItemForViewer(populated as Record<string, unknown>) ??
+      (populated as Record<string, unknown>)
+    );
+  }
+
+  async getTopicItemsForViewer(
+    userId: Types.ObjectId | undefined,
+    projectId: string,
+    filters: { status?: string; search?: string },
+  ) {
+    const member = await projectMemberSchema.findOne({ userId, projectId });
+    if (!member) {
+      throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    }
+
+    const query: Record<string, unknown> = {
+      projectId: new Types.ObjectId(projectId),
+    };
+    if (filters.status) query.status = filters.status;
+    if (filters.search) {
+      const esc = String(filters.search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.$or = [
+        { title: { $regex: esc, $options: "i" } },
+        { code: { $regex: esc, $options: "i" } },
+      ];
+    }
+
+    const topics = await TopicItemModel.find(query)
+      .sort({ createdAt: -1 })
+      .populate("authorUserId", "fullName email")
+      .populate("updatedBy", "fullName email")
+      .populate("references", "name currentVersion")
+      .lean();
+
+    return topics.map((t) =>
+      this.formatTopicItemForViewer(t as Record<string, unknown>),
+    );
+  }
+
+  async getTopicItemDetailForViewer(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new AppError("Topic not found", 404);
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) {
+      throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    }
+
+    const populated = await TopicItemModel.findById(topicItemId)
+      .populate("authorUserId", "fullName email")
+      .populate("updatedBy", "fullName email")
+      .populate("references", "name currentVersion")
+      .lean();
+
+    return this.formatTopicItemForViewer(populated as Record<string, unknown>);
+  }
+
+  async addTopicItemSnapshot(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+    snapshotData: {
+      viewState: unknown;
+      items?: unknown[];
+      thumbnailUrl?: string;
+    },
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new AppError("Topic not found", 404);
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) {
+      throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    }
+
+    const snaps = topicItem.snapshots ?? [];
+    snaps.push({
+      viewState: snapshotData.viewState,
+      items: (snapshotData.items ?? []) as never[],
+      thumbnailUrl: snapshotData.thumbnailUrl ?? "",
+    });
+    topicItem.snapshots = snaps;
+    if (userId) topicItem.updatedBy = userId;
+    await topicItem.save();
+
+    const populated = await TopicItemModel.findById(topicItemId)
+      .populate("authorUserId", "fullName email")
+      .populate("updatedBy", "fullName email")
+      .populate("references", "name currentVersion")
+      .lean();
+
+    return this.formatTopicItemForViewer(populated as Record<string, unknown>);
+  }
+
+  async deleteTopicItem(
+    userId: Types.ObjectId | undefined,
+    topicItemId: string,
+  ) {
+    const topicItem = await TopicItemModel.findById(topicItemId);
+    if (!topicItem) throw new AppError("Topic not found", 404);
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topicItem.projectId,
+    });
+    if (!member) {
+      throw new AppError("Bạn không có quyền truy cập vào dự án này.", 403);
+    }
+
+    await TopicItemModel.findByIdAndDelete(topicItemId);
+    return true;
+  }
+
+  async getLinkableTopicItemsForUser(
+    projectId: string,
+    userId: Types.ObjectId | undefined,
+  ) {
+    if (!userId) throw new AppError("Unauthorized", 401);
+    const role = await this.getActorRole(projectId, userId);
+    const topics = await TopicItemModel.find({
+      projectId: new Types.ObjectId(projectId),
+      status: { $in: [...LINKABLE_TOPIC_ITEM_STATUSES] },
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const out: Record<string, unknown>[] = [];
+    for (const t of topics) {
+      const ok = await userCanSeeTopicItemForLink(
+        userId,
+        projectId,
+        t as { references?: Types.ObjectId[] | null },
+        role,
+      );
+      if (ok) {
+        const formatted = this.formatTopicItemForViewer(
+          t as Record<string, unknown>,
+        );
+        if (formatted) out.push(formatted);
+      }
+    }
+    return out;
+  }
+
+  async getOpenLinkedTodoCountForTopicItem(topicItemId: string) {
+    return countOpenTodosLinkedToTopicItem(topicItemId);
   }
 
   async getAllTopicItems(
@@ -458,17 +700,9 @@ export default class TopicsService {
         throw new Error("Bạn không có quyền truy cập vào dự án này.");
       }
 
-      let topics = await TopicItemModel.find({ projectId })
+      const topics = await TopicItemModel.find({ projectId })
         .sort({ updatedAt: -1 })
         .lean();
-
-      if (!topics || topics.length === 0) {
-        // Ensure FE always has something to render
-        await this.createTopicItemsDefault(new Types.ObjectId(projectId));
-        topics = await TopicItemModel.find({ projectId })
-          .sort({ updatedAt: -1 })
-          .lean();
-      }
 
       return topics;
     } catch (error) {
@@ -562,93 +796,4 @@ export default class TopicsService {
     return topicItem;
   }
 
-  // Create some default topic items so FE has data to render
-  async createTopicItemsDefault(projectId: Types.ObjectId) {
-    try {
-      const exists = await TopicItemModel.findOne({ projectId }).lean();
-      if (exists) return { message: "Default topic items already exist." };
-
-      const now = new Date();
-
-      const defaultItems = [
-        {
-          code: "THEBU-5",
-          title: "new",
-          description: "new",
-          assignee: "",
-          type: "Issue",
-          status: "New",
-          priority: "Low",
-          tags: ["Issue"],
-          dueDate: null,
-          authorName: "Hao Nguyen",
-          thumbnailUrl: "",
-          attachments: [],
-          stats: { comments: 0, viewpoints: 3, attachments: 0 },
-          projectId,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          code: "THEBU-4",
-          title: "test Topic1",
-          description: "",
-          assignee: "",
-          type: "Issue",
-          status: "New",
-          priority: "Normal",
-          tags: ["Issue"],
-          dueDate: null,
-          authorName: "Tran Hoang Phuc",
-          thumbnailUrl: "",
-          attachments: [],
-          stats: { comments: 0, viewpoints: 0, attachments: 0 },
-          projectId,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          code: "THEBU-3",
-          title: "example",
-          description: "",
-          assignee: "",
-          type: "Comment",
-          status: "In Progress",
-          priority: "Normal",
-          tags: [],
-          dueDate: null,
-          authorName: "Hao Nguyen",
-          thumbnailUrl: "",
-          attachments: [],
-          stats: { comments: 0, viewpoints: 0, attachments: 0 },
-          projectId,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          code: "THEBU-2",
-          title: "aaaa",
-          description: "",
-          assignee: "",
-          type: "Undefined",
-          status: "Done",
-          priority: "Normal",
-          tags: [],
-          dueDate: null,
-          authorName: "Tran Hoang Phuc",
-          thumbnailUrl: "",
-          attachments: [],
-          stats: { comments: 0, viewpoints: 0, attachments: 0 },
-          projectId,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ];
-
-      await TopicItemModel.insertMany(defaultItems);
-      return { message: "Default topic items created successfully." };
-    } catch (error: any) {
-      throw new Error(`Error creating default topic items: ${error.message}`);
-    }
-  }
 }

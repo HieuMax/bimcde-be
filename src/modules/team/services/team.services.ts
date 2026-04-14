@@ -5,6 +5,7 @@ import AccountModel from "../../account/schemas/account.schema";
 import groupModel from "../schemas/group.schema";
 import groupMemberModel from "../schemas/group-member.schema";
 import FolderModel from "../../folder/schemas/folder.schema";
+import FileModel from "../../file/schemas/file.schema";
 import FolderService from "../../folder/services/folder.service";
 import { assertValidFolderName } from "../../folder/utils/folderNameValidation";
 import {
@@ -41,7 +42,6 @@ export default class TeamService {
       if (!member) {
         throw new Error("Bạn không có quyền truy cập vào dự án này.");
       }
-      await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
 
       const projectMembers = await projectMemberSchema.find({ projectId });
 
@@ -215,7 +215,6 @@ export default class TeamService {
     if (!member) {
       throw new Error("Bạn không có quyền truy cập vào nhóm này.");
     }
-    await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
     const members = await groupMemberModel
       .find({ groupId: groupId })
       .populate("userId", "fullName email")
@@ -419,10 +418,84 @@ export default class TeamService {
         throw new Error("Bạn không có quyền truy cập vào nhóm này.");
       }
       await this.assertProjectAdmin(projectId, userId as Types.ObjectId);
+
+      const pid = new Types.ObjectId(projectId);
+      const project = await projectSchema.findById(projectId).lean();
+      const mode = parseCdeWorkflowMode(project?.workflowMode) ?? "NORMAL";
+
+      if (mode === "ISO_19650") {
+        await ensureCdeRootsInitialized(projectId.toString(), userId, "ISO_19650");
+
+        const wipRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "WIP",
+          isCdeRoot: true,
+          isDeleted: false,
+        }).lean();
+        const sharedRoot = await FolderModel.findOne({
+          projectId: pid,
+          parentId: null,
+          cdeStage: "SHARED",
+          isCdeRoot: true,
+          isDeleted: false,
+        }).lean();
+
+        const homeFolders = await FolderModel.find({
+          projectId: pid,
+          groupId: group._id,
+          parentId: {
+            $in: [wipRoot?._id, sharedRoot?._id].filter(Boolean) as Types.ObjectId[],
+          },
+          isDeleted: false,
+        }).lean();
+
+        const folderIdsToDelete: Types.ObjectId[] = [];
+        for (const home of homeFolders) {
+          const prefix = home.path ? `${home.path},${home._id}` : `${home._id}`;
+          const descendants = await FolderModel.find({
+            $or: [{ path: prefix }, { path: { $regex: `^${prefix},` } }],
+            isDeleted: false,
+          })
+            .select("_id")
+            .lean();
+          folderIdsToDelete.push(
+            home._id as Types.ObjectId,
+            ...descendants.map((f) => f._id as Types.ObjectId),
+          );
+        }
+
+        const uniqueFolderIds = [
+          ...new Map(
+            folderIdsToDelete.map((id) => [id.toString(), id]),
+          ).values(),
+        ];
+
+        if (uniqueFolderIds.length > 0) {
+          const existingFile = await FileModel.findOne({
+            projectId: pid,
+            folderId: { $in: uniqueFolderIds },
+            isDeleted: false,
+          })
+            .select("_id")
+            .lean();
+          if (existingFile) {
+            throw new Error(
+              "Cannot delete this group because its WIP/Shared folders still contain files.",
+            );
+          }
+
+          await FolderModel.updateMany(
+            { _id: { $in: uniqueFolderIds } },
+            { $set: { isDeleted: true, deletedAt: new Date() } },
+          );
+        }
+      }
+
       await groupMemberModel.deleteMany({ groupId: groupId });
       await groupModel.findByIdAndDelete(groupId);
 
-      return { message: "Xóa group thành công." };
+      return { message: "Group deleted successfully." };
     } catch (err) {
       throw err;
     }
