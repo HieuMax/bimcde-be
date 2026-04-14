@@ -1,17 +1,26 @@
 import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
 import Todo2DModel from "../../todo2d/schemas/todo2d.schema";
+import Todo3DModel from "../../todo3d/schemas/todo.schema";
 import TopicItemModel from "../schemas/topic-item.schema";
 
 export async function countNonTerminalTodosForTopic(
   topicId: string,
 ): Promise<number> {
   if (!Types.ObjectId.isValid(topicId)) return 0;
-  return Todo2DModel.countDocuments({
-    topicId: new Types.ObjectId(topicId),
-    isDeleted: { $ne: true },
-    status: { $nin: ["Done", "Closed"] },
-  });
+  const tid = new Types.ObjectId(topicId);
+  const [n2d, n3d] = await Promise.all([
+    Todo2DModel.countDocuments({
+      topicId: tid,
+      isDeleted: { $ne: true },
+      status: { $nin: ["Done", "Closed"] },
+    }),
+    Todo3DModel.countDocuments({
+      topicId: tid,
+      status: { $nin: ["Done", "Closed"] },
+    }),
+  ]);
+  return n2d + n3d;
 }
 
 /** Topic statuses that require all child todos to be Done/Closed first */

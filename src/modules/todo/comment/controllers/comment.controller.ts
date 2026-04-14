@@ -36,7 +36,7 @@ TodoCommentController.post("/createComment/:todoId", authenticate, async (req, r
     });
     const actor = actorFromReq(req);
     const todo = await TodoModel.findById(req.params.todoId)
-      .select("projectId name")
+      .select("projectId title")
       .lean();
     if (actor && todo?.projectId && result?._id) {
       await logActivitySafe({
@@ -49,7 +49,7 @@ TodoCommentController.post("/createComment/:todoId", authenticate, async (req, r
           itemModel: "Comment",
           itemName: "Todo comment",
         },
-        description: `Comment on todo "${String(todo.name ?? "")}"`,
+        description: `Comment on todo "${String(todo.title ?? "")}"`,
         metaData: { todoId: req.params.todoId },
       });
     }
@@ -75,7 +75,7 @@ TodoCommentController.post("/update/:commentId", authenticate, async (req, res) 
     );
     const actor = actorFromReq(req);
     const prev = result?.todoId
-      ? await TodoModel.findById(result.todoId).select("projectId name").lean()
+      ? await TodoModel.findById(result.todoId).select("projectId title").lean()
       : null;
     if (actor && prev?.projectId && result?._id) {
       await logActivitySafe({
@@ -111,7 +111,7 @@ TodoCommentController.delete("/delete/:commentId", authenticate, async (req, res
     const result = await todoCommentService.deleteComment(req.params.commentId);
     const actor = actorFromReq(req);
     const todo = before?.todoId
-      ? await TodoModel.findById(before.todoId).select("projectId name").lean()
+      ? await TodoModel.findById(before.todoId).select("projectId title").lean()
       : null;
     if (actor && todo?.projectId && before?._id) {
       await logActivitySafe({

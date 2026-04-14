@@ -66,6 +66,13 @@ const FolderSchema: Schema = new Schema(
       default: null,
       index: true,
     },
+    /** ISO: set when admin revokes from Shared/Published — original parentId before move to Revoked */
+    isoRevokeOriginalParentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Folder",
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,

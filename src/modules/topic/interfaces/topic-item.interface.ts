@@ -53,4 +53,18 @@ export interface ITopicItem extends mongoose.Document {
   stats: ITopicStats;
 
   attachments?: IAttachment[];
+
+  updatedBy?: mongoose.Types.ObjectId | null;
+  viewState?: unknown;
+  items?: {
+    fileUrl: string;
+    modelId: string;
+    expressId: string[];
+  }[];
+  snapshots?: {
+    thumbnailUrl?: string;
+    viewState?: unknown;
+    items?: unknown[];
+  }[];
+  references?: mongoose.Types.ObjectId[];
 }

@@ -168,16 +168,27 @@ export default class TodoService {
       }[];
       viewState?: any;
       attachments?: IAttachment[];
+      topicItemId?: string;
     },
   ): Promise<ITodo> {
     if (!data.title || !data.projectId || !data.createdBy) {
       throw new AppError("Title, projectId, and createdBy are required", 400);
     }
 
+    const topicItemId =
+      data.topicItemId && Types.ObjectId.isValid(data.topicItemId)
+        ? new Types.ObjectId(data.topicItemId)
+        : undefined;
+
+    const { topicItemId: _dropTopicItemId, ...rest } = data as typeof data & {
+      topicItemId?: string;
+    };
+
     const newTodo = await TodoModel.create({
-      ...data,
+      ...rest,
       projectId: new Types.ObjectId(data.projectId),
       createdBy: new Types.ObjectId(data.createdBy),
+      topicItemId: topicItemId ?? null,
       status: data.status || "new",
       priority: data.priority || "normal",
       completion: data.completion ?? 0,

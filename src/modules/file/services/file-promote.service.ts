@@ -2,6 +2,7 @@ import path from "path";
 import { Types } from "mongoose";
 import FileModel from "../schemas/file.schema";
 import FolderModel from "../../folder/schemas/folder.schema";
+import FolderService from "../../folder/services/folder.service";
 import projectSchema from "../../project/schemas/project.schema";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
 import groupMemberModel from "../../team/schemas/group-member.schema";
@@ -20,11 +21,13 @@ import {
 import ActivityService from "../../activity/services/activity.service";
 import CdeAccessService from "../../permission/services/cde-access.service";
 import type { IFile } from "../interfaces/file.interface";
+import { classifyIsoWipDirectPromoteMode } from "../utils/iso-wip-promote-mode";
 
 const cdeAccess = new CdeAccessService();
 
 type LeanFolder = {
   _id: Types.ObjectId;
+  name?: string;
   parentId?: Types.ObjectId | null;
   groupId?: Types.ObjectId | null;
   isCdeRoot?: boolean;
@@ -44,6 +47,7 @@ function isProjectAdminRole(role: unknown): boolean {
 
 export default class FilePromoteService {
   private activity = new ActivityService();
+  private folderService = new FolderService();
 
   private async getFolderChainFromRoot(folderId: string): Promise<LeanFolder[]> {
     const chain: LeanFolder[] = [];
@@ -75,6 +79,91 @@ export default class FilePromoteService {
       if (chain[i].groupId) return chain[i].groupId as Types.ObjectId;
     }
     return null;
+  }
+
+  /**
+   * ISO auto-mirroring:
+   * Ensure WIP subfolder path under group-home is mirrored under Shared group-home.
+   * Returns destination folder id for the promoted file.
+   */
+  private async ensureSharedMirroredFolderForWipSource(
+    opts: {
+      sourceChain: LeanFolder[];
+      sourceCdeRoot: LeanFolder;
+      sharedGroupHome: LeanFolder;
+      sourceGroupId: Types.ObjectId;
+      sourceFolderId: Types.ObjectId;
+      projectId: Types.ObjectId;
+      actorUserId: Types.ObjectId;
+    }
+  ): Promise<Types.ObjectId> {
+    const {
+      sourceChain,
+      sourceCdeRoot,
+      sharedGroupHome,
+      sourceGroupId,
+      sourceFolderId,
+      projectId,
+      actorUserId,
+    } = opts;
+
+    const sourceGroupHomeIndex = sourceChain.findIndex(
+      (f) =>
+        f.parentId?.toString() === sourceCdeRoot._id.toString() &&
+        f.groupId?.toString() === sourceGroupId.toString()
+    );
+    if (sourceGroupHomeIndex < 0) {
+      throw new AppError(
+        "Cannot resolve WIP group home folder for auto-mirroring.",
+        409
+      );
+    }
+
+    const sourceFolderIndex = sourceChain.findIndex(
+      (f) => f._id.toString() === sourceFolderId.toString()
+    );
+    if (sourceFolderIndex < 0 || sourceFolderIndex < sourceGroupHomeIndex) {
+      throw new AppError(
+        "Source folder is outside WIP group scope for auto-mirroring.",
+        409
+      );
+    }
+
+    // Relative path from WIP group-home to file's containing folder.
+    const relativeSegments = sourceChain
+      .slice(sourceGroupHomeIndex + 1, sourceFolderIndex + 1)
+      .map((f) => String(f.name ?? "").trim())
+      .filter((n) => n.length > 0);
+
+    // File directly under WIP group-home => promote to Shared group-home.
+    if (relativeSegments.length === 0) {
+      return sharedGroupHome._id;
+    }
+
+    let parentId = sharedGroupHome._id;
+    for (const folderName of relativeSegments) {
+      const existing = await FolderModel.findOne({
+        projectId,
+        parentId,
+        name: folderName,
+        isDeleted: false,
+      }).lean();
+      if (existing?._id) {
+        parentId = existing._id as Types.ObjectId;
+        continue;
+      }
+
+      const created = await this.folderService.createFolder({
+        name: folderName,
+        projectId,
+        parentId,
+        createdBy: actorUserId,
+        groupId: sourceGroupId,
+      });
+      parentId = created._id as Types.ObjectId;
+    }
+
+    return parentId;
   }
 
   private async uniqueNameInFolder(
@@ -421,6 +510,21 @@ export default class FilePromoteService {
     }
   }
 
+  private async assertProjectAdminCanPromoteWipToShared(
+    projectId: string,
+    userId: Types.ObjectId
+  ): Promise<void> {
+    const pm = await projectMemberSchema
+      .findOne({ projectId, userId })
+      .lean();
+    if (!pm || !isProjectAdminRole(pm.role)) {
+      throw new AppError(
+        "Only a project administrator can promote this file from WIP to Shared",
+        403
+      );
+    }
+  }
+
   /**
    * ISO 19650: copy file metadata (+ same R2 object) into destination stage folder.
    * Source file in WIP is unchanged.
@@ -478,25 +582,35 @@ export default class FilePromoteService {
           400
         );
       }
-      await this.assertGroupLeader(effGroup, userId);
+      if (!cdeRoot) {
+        throw new AppError("Missing WIP CDE root for auto-mirroring", 409);
+      }
 
       const sharedRoot = await this.findCdeRoot(pid, "SHARED");
       if (!sharedRoot) {
         throw new AppError("Shared CDE root folder not found", 404);
       }
-      const destFolder = await FolderModel.findOne({
+      const sharedGroupHome = await FolderModel.findOne({
         projectId: pid,
         parentId: sharedRoot._id,
         groupId: effGroup,
         isDeleted: false,
       }).lean();
-      if (!destFolder) {
+      if (!sharedGroupHome) {
         throw new AppError(
           "Matching group folder not found under Shared. Ensure the group exists.",
           404
         );
       }
-      destFolderId = destFolder._id as Types.ObjectId;
+      destFolderId = await this.ensureSharedMirroredFolderForWipSource({
+        sourceChain: chain,
+        sourceCdeRoot: cdeRoot,
+        sharedGroupHome: sharedGroupHome as LeanFolder,
+        sourceGroupId: effGroup,
+        sourceFolderId: file.folderId as Types.ObjectId,
+        projectId: pid,
+        actorUserId: userId,
+      });
     } else if (sourceStage === "SHARED" && targetStage === "PUBLISHED") {
       await this.assertProjectAdmin(projectIdStr, userId);
       await this.assertNoOpenIssuesBeforePublish(projectIdStr, file._id.toString());
@@ -552,18 +666,31 @@ export default class FilePromoteService {
     if (!source) throw new AppError("File not found", 404);
 
     if (sourceStage === "WIP" && targetStage === "SHARED") {
-      const ws = source.workflowStatus as FileWorkflowStatus | undefined;
-      const sver = source.submittedForReviewVersion;
+      const wipMode = await classifyIsoWipDirectPromoteMode(
+        projectIdStr,
+        effGroup!,
+        source as any,
+      );
+      if (wipMode === "admin_direct") {
+        await this.assertProjectAdminCanPromoteWipToShared(projectIdStr, userId);
+      } else {
+        await this.assertGroupLeader(effGroup!, userId);
+      }
+
       const cv = source.currentVersion;
-      if (
-        ws !== "SUBMITTED_FOR_REVIEW" ||
-        sver == null ||
-        sver !== cv
-      ) {
-        throw new AppError(
-          "Promote to Shared is only available after the file owner submits this version for review",
-          403
-        );
+      if (wipMode === "member_submit") {
+        const ws = source.workflowStatus as FileWorkflowStatus | undefined;
+        const sver = source.submittedForReviewVersion;
+        if (
+          ws !== "SUBMITTED_FOR_REVIEW" ||
+          sver == null ||
+          sver !== cv
+        ) {
+          throw new AppError(
+            "Promote to Shared is only available after the file owner submits this version for review",
+            403
+          );
+        }
       }
       const promotedVer = source.wipPromotedToSharedVersion;
       if (promotedVer != null && promotedVer === cv) {

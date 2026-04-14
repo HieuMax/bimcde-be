@@ -22,7 +22,7 @@ TodoController.get(
   "/",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { projectId, status, assignee, priority } = req.query;
+    const { projectId, status, assignee, priority, topicId } = req.query;
 
     if (!projectId) {
       throw new AppError("Project ID is required", 400);
@@ -32,6 +32,7 @@ TodoController.get(
     if (status) filters.status = status;
     if (assignee) filters.assignee = assignee as string;
     if (priority) filters.priority = priority;
+    if (topicId) filters.topicId = topicId as string;
 
     const todos = await todoService.getAllTodos(projectId as string, filters);
     res.json(todos);
@@ -77,6 +78,7 @@ TodoController.post(
       tags,
       dueDate,
       projectId,
+      topicId,
       items,
       viewState,
       attachments
@@ -103,6 +105,7 @@ TodoController.post(
       dueDate: dueDate ? new Date(dueDate) : undefined,
       projectId,
       createdBy,
+      topicId: topicId === undefined ? undefined : topicId,
       items,
       viewState,
       attachments
@@ -148,6 +151,7 @@ TodoController.put(
       type,
       tags,
       dueDate,
+      topicId,
       items,
       viewState,
       attachments
@@ -181,6 +185,9 @@ TodoController.put(
     if (items !== undefined) updateData.items = items;
     if (viewState !== undefined) updateData.viewState = viewState;
     if (attachments !== undefined) updateData.attachments = attachments;
+    if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "topicId")) {
+      updateData.topicId = topicId === "" ? null : topicId;
+    }
 
     if (Object.keys(updateData).length === 0) {
       throw new AppError("Nothing to update", 400);
@@ -271,7 +278,12 @@ TodoController.patch(
       throw new AppError(`Status must be one of: ${validStatuses.join(", ")}`, 400);
     }
 
-    const updatedTodo = await todoService.updateTodoStatus(id, status);
+    const userId = req.userId?.toString();
+    const updatedTodo = await todoService.updateTodoStatus(
+      id,
+      status,
+      userId,
+    );
     const actor = actorFromReq(req);
     if (actor && updatedTodo?._id && updatedTodo.projectId) {
       await logActivitySafe({
