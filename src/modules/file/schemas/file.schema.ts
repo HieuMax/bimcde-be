@@ -82,6 +82,18 @@ const FileSchema: Schema = new Schema(
       default: null,
     },
     promotedFromVersion: { type: Number, default: null },
+    /** ISO: set when admin revokes from Shared/Published — original folderId before move to Revoked */
+    isoRevokeOriginalFolderId: {
+      type: Schema.Types.ObjectId,
+      ref: "Folder",
+      default: null,
+      index: true,
+    },
+    /** ISO: file name before revoke (for restore to original basename, not "… (revoked n)") */
+    isoRevokeOriginalName: {
+      type: String,
+      default: null,
+    },
   },
   { 
     timestamps: true,

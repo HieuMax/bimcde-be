@@ -7,6 +7,11 @@ import { auditLog } from "../../../middlewares/auditLog.middleware";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import FolderModel from "../schemas/folder.schema";
 import ActivityService from "../../activity/services/activity.service";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
 
 const FolderController = express.Router();
 const folderService = new FolderService();
@@ -53,6 +58,22 @@ FolderController.post(
       parentId: normalizedParentId,
       createdBy: actorId,
     });
+    const actorCreate = actorFromReq(req);
+    if (actorCreate) {
+      await logActivitySafe({
+        projectId: projectIdToString(newFolder.projectId),
+        actor: actorCreate,
+        actionGroup: "FOLDER",
+        actionType: "CREATE",
+        target: {
+          itemId: String(newFolder._id),
+          itemModel: "Folder",
+          itemName: newFolder.name,
+        },
+        description: `Created folder "${newFolder.name}"`,
+        metaData: { parentId: normalizedParentId },
+      });
+    }
     res.status(201).json(newFolder);
   }),
 );
@@ -171,11 +192,37 @@ FolderController.put(
     const userId = req.userId?.toString();
     if (!userId) throw new AppError("Unauthorized", 401);
 
+    const beforeMove = await FolderModel.findById(id)
+      .select("projectId name parentId")
+      .lean();
     const result = await folderService.moveFolder(
       id,
       destinationParentId,
       userId,
     );
+    const actorMove = actorFromReq(req);
+    if (actorMove && beforeMove) {
+      await logActivitySafe({
+        projectId: projectIdToString(result.projectId),
+        actor: actorMove,
+        actionGroup: "FOLDER",
+        actionType: "MOVE",
+        target: {
+          itemId: id,
+          itemModel: "Folder",
+          itemName: result.name,
+        },
+        description: `Moved folder "${result.name}"`,
+        metaData: {
+          fromParentId: beforeMove.parentId
+            ? projectIdToString(beforeMove.parentId)
+            : null,
+          toParentId: result.parentId
+            ? projectIdToString(result.parentId)
+            : null,
+        },
+      });
+    }
     res.json(result);
   }),
 );
@@ -190,6 +237,27 @@ FolderController.post(
       throw new AppError("folderIds must be an array", 400);
     }
     const result = await folderService.assignTags(folderIds, tagIds || []);
+    const actorTags = actorFromReq(req);
+    if (actorTags && Array.isArray(result) && result.length > 0) {
+      for (const f of result as Array<{
+        _id: unknown;
+        name: string;
+        projectId: unknown;
+      }>) {
+        await logActivitySafe({
+          projectId: projectIdToString(f.projectId),
+          actor: actorTags,
+          actionGroup: "FOLDER",
+          actionType: "TAG_SET",
+          target: {
+            itemId: String(f._id),
+            itemModel: "Folder",
+            itemName: f.name,
+          },
+          metaData: { tagIds: tagIds || [] },
+        });
+      }
+    }
     res.json(result);
   }),
 );

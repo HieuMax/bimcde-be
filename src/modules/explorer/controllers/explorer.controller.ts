@@ -3,9 +3,11 @@ import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ExplorerService from "../services/explorer.service";
+import IsoRevokeService from "../services/iso-revoke.service";
 
 const ExplorerController = express.Router();
 const explorerService = new ExplorerService();
+const isoRevokeService = new IsoRevokeService();
 
 /**
  * GET /api/explorer/group-home-folder
@@ -96,6 +98,90 @@ ExplorerController.get(
     );
 
     res.json(data);
+  })
+);
+
+/**
+ * GET /api/explorer/folder-subtree-activity
+ * Query: projectId, folderId — last file/folder change inside folder (recursive).
+ */
+ExplorerController.get(
+  "/folder-subtree-activity",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { projectId, folderId } = req.query;
+    if (!projectId || typeof projectId !== "string") {
+      throw new AppError("Project ID is required", 400);
+    }
+    if (!folderId || typeof folderId !== "string") {
+      throw new AppError("folderId is required", 400);
+    }
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    const data = await explorerService.getFolderSubtreeActivity(
+      projectId,
+      folderId,
+      req.userId
+    );
+    res.json(data);
+  })
+);
+
+/**
+ * POST /api/explorer/iso-revoke
+ * ISO admin: move file/folder from Shared or Published into Archived/Revoked.
+ */
+ExplorerController.post(
+  "/iso-revoke",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    const { projectId, itemId, isFile } = req.body ?? {};
+    if (!projectId || typeof projectId !== "string") {
+      throw new AppError("projectId is required", 400);
+    }
+    if (!itemId || typeof itemId !== "string") {
+      throw new AppError("itemId is required", 400);
+    }
+    const userId = req.userId.toString();
+    const result = isFile === true || isFile === "true"
+      ? await isoRevokeService.revokeFile(projectId, itemId, userId)
+      : await isoRevokeService.revokeFolder(projectId, itemId, userId);
+    res.json({ success: true, result });
+  })
+);
+
+/**
+ * POST /api/explorer/iso-restore
+ * ISO admin: restore revoked item; body.overwrite=true to replace same-name destination.
+ */
+ExplorerController.post(
+  "/iso-restore",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.userId) throw new AppError("Unauthorized", 401);
+    const { projectId, itemId, isFile, overwrite } = req.body ?? {};
+    if (!projectId || typeof projectId !== "string") {
+      throw new AppError("projectId is required", 400);
+    }
+    if (!itemId || typeof itemId !== "string") {
+      throw new AppError("itemId is required", 400);
+    }
+    const userId = req.userId.toString();
+    const doOverwrite = overwrite === true || overwrite === "true";
+    const result = isFile === true || isFile === "true"
+      ? await isoRevokeService.restoreFile(
+          projectId,
+          itemId,
+          userId,
+          doOverwrite
+        )
+      : await isoRevokeService.restoreFolder(
+          projectId,
+          itemId,
+          userId,
+          doOverwrite
+        );
+    res.json({ success: true, result });
   })
 );
 

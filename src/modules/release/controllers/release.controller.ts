@@ -129,7 +129,7 @@ ReleaseController.get(
 ReleaseController.delete(
   "/:id/items",
   authenticate,
-  auditLog("RELEASE", "UPDATE", (req, resBody) => ({
+  auditLog("RELEASE", "ITEMS_REMOVE_BULK", (req, resBody) => ({
     itemId: req.params.id,
     itemName: "Bulk Remove Items from Release",
     itemModel: "Release",
@@ -155,7 +155,7 @@ ReleaseController.delete(
 ReleaseController.delete(
   "/:id/items/:fileId",
   authenticate,
-  auditLog("RELEASE", "UPDATE", (req, resBody) => ({
+  auditLog("RELEASE", "ITEM_REMOVE", (req, resBody) => ({
     itemId: req.params.id,
     itemName: "Remove Item from Release",
     itemModel: "Release",

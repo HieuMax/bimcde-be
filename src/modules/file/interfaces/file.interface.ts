@@ -44,6 +44,8 @@ export interface IFile extends Document {
   sharedPromotedToPublishedVersion?: number | null;
   promotedFromFileId?: Types.ObjectId | null;
   promotedFromVersion?: number | null;
+  isoRevokeOriginalFolderId?: Types.ObjectId | null;
+  isoRevokeOriginalName?: string | null;
 
   createdAt: Date;
   updatedAt: Date;

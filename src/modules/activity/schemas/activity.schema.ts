@@ -22,7 +22,22 @@ const ActivitySchema = new Schema(
     // 3. Action Info
     actionGroup: {
       type: String,
-      enum: ["FILE", "FOLDER", "MEMBER", "VIEW", "RELEASE", "TOPIC"],
+      enum: [
+        "FILE",
+        "FOLDER",
+        "MEMBER",
+        "VIEW",
+        "RELEASE",
+        "TOPIC",
+        "TAG",
+        "PROJECT",
+        "PERMISSION",
+        "TODO",
+        "GROUP",
+        "COMMENT",
+        "RESTORE",
+        "CLASH",
+      ],
       required: true,
     },
     actionType: {
@@ -37,7 +52,20 @@ const ActivitySchema = new Schema(
         type: String,
         required: true,
         // Enum phải khớp với tên Model bạn đã export (File, Folder, ProjectMember...)
-        enum: ["File", "Folder", "View", "Release", "Topic", "Account"],
+        enum: [
+          "File",
+          "Folder",
+          "View",
+          "Release",
+          "Topic",
+          "Account",
+          "Tag",
+          "Project",
+          "Group",
+          "Todo",
+          "Comment",
+          "ClashSet",
+        ],
       },
       itemName: String, // Snapshot tên đối tượng (vì file có thể bị rename sau này)
     },

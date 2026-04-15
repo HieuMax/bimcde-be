@@ -1,13 +1,16 @@
 import mongoose, { Schema } from "mongoose";
 import { ITodo } from "../interfaces/todo.interface";
 
-const AttachmentSchema = new Schema({
-  name: { type: String, required: true },
-  url: { type: String, required: true },
-  mimeType: { type: String },
-  size: { type: Number },
-  fileId: { type: String } // Optional
-}, { _id: false });
+const AttachmentSchema = new Schema(
+  {
+    name: { type: String, required: true },
+    url: { type: String, required: true },
+    mimeType: { type: String },
+    size: { type: Number },
+    fileId: { type: String }, // Optional
+  },
+  { _id: false },
+);
 
 const TodoSchema = new Schema<ITodo>(
   {
@@ -32,7 +35,7 @@ const TodoSchema = new Schema<ITodo>(
       default: 0,
       required: true,
     },
-    assignees: [{ type: String }],
+
     type: {
       type: String,
       enum: [
@@ -49,17 +52,18 @@ const TodoSchema = new Schema<ITodo>(
       default: "undefined",
       required: true,
     },
-    tags: [{ type: String }],
     dueDate: { type: Date },
-    items: [{
-      fileUrl: { type: String },
-      modelId: { type: String },
-      expressId: [{ type: String }]
-    }],
+    items: [
+      {
+        fileUrl: { type: String },
+        modelId: { type: String },
+        expressId: [{ type: String }],
+      },
+    ],
     // viewState: {
     //   camera: {
     //     position: [{ type: Number }],
-    //     target: [{ type: Number }]   
+    //     target: [{ type: Number }]
     //   },
     //   visibility: [{
     //     modelID: { type: Schema.Types.Mixed },
@@ -74,13 +78,34 @@ const TodoSchema = new Schema<ITodo>(
     // },
     viewState: {
       type: Schema.Types.Mixed,
-      default: null
+      default: null,
     },
     attachments: [AttachmentSchema],
+    assignees: [
+      {
+        assigneeId: { type: String, required: true },
+        name: { type: String, required: true },
+        type: { type: String, required: true },
+        label: { type: String, required: true },
+      },
+    ],
+    tags: [
+      {
+        tagId: String,
+        name: String,
+      },
+    ],
+
     projectId: {
       type: Schema.Types.ObjectId,
       ref: "Project",
       required: [true, "Project ID is required"],
+    },
+    /** Optional parent topic (TopicItem — same collection as BCF /topics). */
+    topicId: {
+      type: Schema.Types.ObjectId,
+      ref: "TopicItem",
+      default: null,
     },
     createdBy: {
       type: Schema.Types.ObjectId,
@@ -88,17 +113,18 @@ const TodoSchema = new Schema<ITodo>(
       required: [true, "CreatedBy is required"],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-TodoSchema.pre('save', function (next) {
-  if (this.isModified('viewState')) {
-    this.markModified('viewState');
+TodoSchema.pre("save", function (next) {
+  if (this.isModified("viewState")) {
+    this.markModified("viewState");
   }
   next();
 });
 
 TodoSchema.index({ projectId: 1, status: 1, createdAt: -1 });
+TodoSchema.index({ topicId: 1, status: 1 });
 TodoSchema.index({ createdBy: 1 });
 TodoSchema.index({ assignees: 1 });
 

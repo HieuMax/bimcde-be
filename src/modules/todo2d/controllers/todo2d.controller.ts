@@ -4,6 +4,12 @@ import { AppError } from "../../../utils/AppError";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import Todo2DService from "../services/todo2d.service";
 import AccountModel from "../../account/schemas/account.schema";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
+import Todo2DModel from "../schemas/todo2d.schema";
 
 const Todo2DController = express.Router();
 const todo2DService = new Todo2DService();
@@ -33,6 +39,22 @@ Todo2DController.post(
       createdBy,
       updatedBy,
     });
+
+    const actor = actorFromReq(req);
+    if (actor && newTodo?._id && newTodo.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(newTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "CREATE",
+        target: {
+          itemId: String(newTodo._id),
+          itemModel: "Todo",
+          itemName: String(newTodo.title ?? "Todo"),
+        },
+        description: `Created 2D todo "${String(newTodo.title ?? "")}"`,
+      });
+    }
 
     res.status(201).json(newTodo);
   })
@@ -65,9 +87,27 @@ Todo2DController.delete(
     console.log("🗑️ [DELETE TODO] Todo ID:", id);
     console.log("🗑️ [DELETE TODO] User ID:", userId);
 
+    const existing = await Todo2DModel.findById(id).lean();
     // Gọi service backend để set isDeleted = true
     await todo2DService.deleteTodo(id);
-    
+
+    const actor = actorFromReq(req);
+    if (actor && existing?._id) {
+      const t = existing as { _id: unknown; projectId?: unknown; title?: string };
+      await logActivitySafe({
+        projectId: projectIdToString(t.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "DELETE",
+        target: {
+          itemId: String(t._id),
+          itemModel: "Todo",
+          itemName: String(t.title ?? "Todo"),
+        },
+        description: "Deleted 2D todo",
+      });
+    }
+
     res.status(200).json({ success: true, message: "Todo deleted" });
   })
 );
@@ -102,6 +142,22 @@ Todo2DController.put(
 
     if (!updatedTodo) {
       throw new AppError("Todo not found", 404);
+    }
+
+    const actor = actorFromReq(req);
+    if (actor && updatedTodo._id && updatedTodo.projectId) {
+      await logActivitySafe({
+        projectId: projectIdToString(updatedTodo.projectId),
+        actor,
+        actionGroup: "TODO",
+        actionType: "UPDATE",
+        target: {
+          itemId: String(updatedTodo._id),
+          itemModel: "Todo",
+          itemName: String(updatedTodo.title ?? "Todo"),
+        },
+        description: `Updated 2D todo "${String(updatedTodo.title ?? "")}"`,
+      });
     }
 
     res.status(200).json(updatedTodo);

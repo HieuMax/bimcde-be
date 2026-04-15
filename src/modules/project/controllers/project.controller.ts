@@ -5,12 +5,35 @@ import { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
 import { authenticate } from "../../../middlewares/authMiddlewares";
 import ProjectService from "../services/project.services";
 import authorize from "../../../middlewares/authorize";
+import projectSchema from "../schemas/project.schema";
+import AccountModel from "../../account/schemas/account.schema";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
 const ProjectController = express.Router();
 
 const projectService = new ProjectService();
 ProjectController.post("/createProject", authenticate, async (req, res) => {
   try {
     const result = await projectService.createProject(req.userId, req.body);
+
+    const actor = actorFromReq(req);
+    if (actor && result?._id) {
+      await logActivitySafe({
+        projectId: projectIdToString(result._id),
+        actor,
+        actionGroup: "PROJECT",
+        actionType: "CREATE",
+        target: {
+          itemId: String(result._id),
+          itemModel: "Project",
+          itemName: (result as { name?: string }).name ?? "Project",
+        },
+        description: `Created project "${(result as { name?: string }).name ?? ""}"`,
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -103,6 +126,22 @@ ProjectController.put(
         req.userId,
         req.body,
       );
+      const actor = actorFromReq(req);
+      if (actor && result?._id) {
+        await logActivitySafe({
+          projectId: projectIdToString(result._id),
+          actor,
+          actionGroup: "PROJECT",
+          actionType: "UPDATE",
+          target: {
+            itemId: String(result._id),
+            itemModel: "Project",
+            itemName: (result as { name?: string }).name ?? "Project",
+          },
+          description: "Updated project settings",
+          metaData: { fields: Object.keys(req.body ?? {}) },
+        });
+      }
       res.status(200).json({
         success: true,
         message: "Cập nhật dự án thành công.",
@@ -128,6 +167,22 @@ ProjectController.put(
         req.params.projectId,
       );
 
+      const actor = actorFromReq(req);
+      if (actor) {
+        await logActivitySafe({
+          projectId: req.params.projectId,
+          actor,
+          actionGroup: "MEMBER",
+          actionType: "LEAVE",
+          target: {
+            itemId: String(req.userId),
+            itemModel: "Account",
+            itemName: actor.fullName ?? "User",
+          },
+          description: "Left project",
+        });
+      }
+
       res.status(200).json({
         success: true,
         message: "Rời dự án thành công.",
@@ -148,10 +203,28 @@ ProjectController.delete(
   authenticate,
   async (req, res) => {
     try {
+      const projectId = req.params.projectId;
+      const project = await projectSchema.findById(projectId).lean();
       const result = await projectService.deleteProject(
         req.userId,
-        req.params.projectId,
+        projectId,
       );
+
+      const actor = actorFromReq(req);
+      if (actor && project?._id) {
+        await logActivitySafe({
+          projectId: projectIdToString(project._id),
+          actor,
+          actionGroup: "PROJECT",
+          actionType: "DELETE",
+          target: {
+            itemId: String(project._id),
+            itemModel: "Project",
+            itemName: (project as { name?: string }).name ?? "Project",
+          },
+          description: `Deleted project "${(project as { name?: string }).name ?? ""}"`,
+        });
+      }
 
       res.status(200).json({
         success: true,
@@ -179,6 +252,26 @@ ProjectController.post(
         req.body,
       );
 
+      const actor = actorFromReq(req);
+      if (actor && result?.userId) {
+        const invited = await AccountModel.findById(result.userId)
+          .select("fullName email")
+          .lean();
+        await logActivitySafe({
+          projectId: req.params.projectId,
+          actor,
+          actionGroup: "MEMBER",
+          actionType: "INVITE",
+          target: {
+            itemId: String(result.userId),
+            itemModel: "Account",
+            itemName: invited?.fullName ?? invited?.email ?? "Member",
+          },
+          description: "Invited user to project",
+          metaData: { role: req.body?.role ?? "member" },
+        });
+      }
+
       res.status(201).json({
         success: true,
         message: "Thêm thành viên vào dự án thành công.",
@@ -204,6 +297,24 @@ ProjectController.post(
         req.params.projectId,
         req.body,
       );
+      const actor = actorFromReq(req);
+      if (actor && result?.userId) {
+        const acc = await AccountModel.findById(result.userId)
+          .select("fullName email")
+          .lean();
+        await logActivitySafe({
+          projectId: req.params.projectId,
+          actor,
+          actionGroup: "MEMBER",
+          actionType: "ROLE_UPDATE",
+          target: {
+            itemId: String(result.userId),
+            itemModel: "Account",
+            itemName: acc?.fullName ?? acc?.email ?? "Member",
+          },
+          metaData: { role: result.role },
+        });
+      }
       res.status(200).json({
         success: true,
         message: "Cập nhật thành viên dự án thành công.",
@@ -227,12 +338,32 @@ ProjectController.post(
       const projectId = req.params.projectId;
       const { userRemove } = req.body;
 
+      const removedAcc = await AccountModel.findById(userRemove)
+        .select("fullName email")
+        .lean();
+
       // Xử lý logic xóa thành viên khỏi dự án
       const result = await projectService.removeFromProject(
         req.userId,
         projectId,
         userRemove,
       );
+
+      const actor = actorFromReq(req);
+      if (actor) {
+        await logActivitySafe({
+          projectId,
+          actor,
+          actionGroup: "MEMBER",
+          actionType: "REMOVE",
+          target: {
+            itemId: String(userRemove),
+            itemModel: "Account",
+            itemName: removedAcc?.fullName ?? removedAcc?.email ?? "Member",
+          },
+          description: "Removed member from project",
+        });
+      }
 
       res.status(200).json({
         success: true,

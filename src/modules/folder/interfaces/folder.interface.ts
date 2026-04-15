@@ -26,6 +26,7 @@ export interface IFolder extends Document {
   isCdeRoot?: boolean;
   isCdeRootLocked?: boolean;
   groupId?: Types.ObjectId | null;
+  isoRevokeOriginalParentId?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }

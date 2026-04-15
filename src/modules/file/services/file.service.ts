@@ -19,6 +19,9 @@ import { ConflictStrategy } from "../utils/fileUpload.validation";
 import { PROJECT_STORAGE_LIMIT_BYTES } from "../constants/projectStorage";
 import { parseCdeWorkflowMode } from "../../../constants/cde-workflow";
 import CdeAccessService from "../../permission/services/cde-access.service";
+import { assertIsoAllowsUserContentInParent } from "../../folder/utils/folderIsoPlacement";
+import { logActivitySafe, projectIdToString } from "../../activity/utils/auditActivity.helpers";
+import type { CreateActivityDTO } from "../../activity/interfaces/activity.interface";
 
 const cdeAccess = new CdeAccessService();
 
@@ -654,16 +657,23 @@ export default class FileService {
         validFolderId.toString(),
         "create_child"
       );
+      const folderDoc = await FolderModel.findOne({
+        _id: validFolderId,
+        isDeleted: false,
+      })
+        .select("_id isCdeRoot cdeStage groupId parentId")
+        .lean();
+      if (!folderDoc) {
+        throw new AppError("Folder not found", 404);
+      }
+      await assertIsoAllowsUserContentInParent(projectId, folderDoc);
     } else {
       const proj = await ProjectModel.findById(projectId).select("workflowMode").lean();
       if (parseCdeWorkflowMode(proj?.workflowMode) === "ISO_19650") {
-        const ctx = await cdeAccess.loadIsoContext(projectId, userOid);
-        if (!ctx.isProjectAdmin) {
-          throw new AppError(
-            "Cannot upload to project root in ISO 19650 mode",
-            403
-          );
-        }
+        throw new AppError(
+          "Cannot upload at project root in ISO 19650 mode. Open a folder under a CDE stage or team folder first.",
+          403
+        );
       }
     }
 
@@ -748,6 +758,238 @@ export default class FileService {
     }).populate("tags");
   }
 
+  /** Display order for badges (Shared before WIP matches common “downstream + source” reading). */
+  private static readonly UNIFIED_VERSION_LABEL_ORDER = [
+    "Shared",
+    "WIP",
+    "Published",
+    "Revoked",
+  ] as const;
+
+  /** Walk promotedFromFileId until root; reversed order is [WIP root, …, entry]. */
+  private async loadIsoPromotionChainBackward(
+    entryFileId: Types.ObjectId,
+    projectId: Types.ObjectId,
+  ): Promise<any[]> {
+    const backwards: any[] = [];
+    const seen = new Set<string>();
+    let cur: Types.ObjectId | null = entryFileId;
+    while (cur && !seen.has(cur.toString())) {
+      seen.add(cur.toString());
+      const doc = await FileModel.findOne({
+        _id: cur,
+        projectId,
+        isDeleted: false,
+      })
+        .populate("versions.uploadedBy", "fullName email")
+        .lean();
+      if (!doc) break;
+      backwards.push(doc);
+      const p = doc.promotedFromFileId as Types.ObjectId | undefined | null;
+      cur =
+        p && Types.ObjectId.isValid(p)
+          ? (p as Types.ObjectId)
+          : null;
+    }
+    return backwards.reverse();
+  }
+
+  /**
+   * Full ISO chain [WIP, Shared?, Published?] regardless of which copy `entryFileId` is.
+   * Without forward discovery, opening WIP only saw the WIP doc and missed Shared labels.
+   */
+  private async resolveFullIsoPromotionChain(
+    entryFileId: Types.ObjectId,
+    projectId: Types.ObjectId,
+  ): Promise<any[]> {
+    const backward = await this.loadIsoPromotionChainBackward(
+      entryFileId,
+      projectId,
+    );
+    if (backward.length === 0) return [];
+
+    const wipRoot = backward[0];
+    if (!wipRoot?._id) return backward;
+
+    const sharedCandidates = await FileModel.find({
+      projectId,
+      promotedFromFileId: wipRoot._id,
+      isDeleted: false,
+    })
+      .populate("versions.uploadedBy", "fullName email")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const sharedDoc =
+      sharedCandidates.find((d: any) => d.cdeStage === "SHARED") ??
+      sharedCandidates[0];
+
+    let publishedDoc: any = null;
+    if (sharedDoc?._id) {
+      const pubCandidates = await FileModel.find({
+        projectId,
+        promotedFromFileId: sharedDoc._id,
+        isDeleted: false,
+      })
+        .populate("versions.uploadedBy", "fullName email")
+        .sort({ createdAt: 1 })
+        .lean();
+      publishedDoc =
+        pubCandidates.find((d: any) => d.cdeStage === "PUBLISHED") ??
+        pubCandidates[0];
+    }
+
+    const chain: any[] = [wipRoot];
+    const seen = new Set<string>([wipRoot._id.toString()]);
+    if (sharedDoc && !seen.has(sharedDoc._id.toString())) {
+      seen.add(sharedDoc._id.toString());
+      chain.push(sharedDoc);
+    }
+    if (publishedDoc && !seen.has(publishedDoc._id.toString())) {
+      seen.add(publishedDoc._id.toString());
+      chain.push(publishedDoc);
+    }
+
+    return chain;
+  }
+
+  /**
+   * CDE root for the file’s **current** folder only (not denormalized `cdeStage` on the document).
+   * Tags apply only while that copy still lives under that stage (e.g. after revoke, Shared tag drops).
+   */
+  private async resolveCurrentFolderCdeRootStage(
+    folderId: Types.ObjectId | null | undefined,
+    folderStageCache: Map<string, string | undefined>,
+  ): Promise<string | undefined> {
+    if (!folderId) return undefined;
+    const fid = folderId.toString();
+    if (!folderStageCache.has(fid)) {
+      folderStageCache.set(
+        fid,
+        await cdeAccess.getIsoCdeRootStageForFolderId(fid),
+      );
+    }
+    return folderStageCache.get(fid);
+  }
+
+  /**
+   * Stage tags for one copy **only** when `versionNum` is that copy’s active head (`currentVersion`)
+   * and the copy sits under the matching CDE root (by folder). Older revisions in `versions[]` get no tag from that copy.
+   */
+  private async stageLabelsWhenDocHeadAtCde(
+    doc: any,
+    versionNum: number,
+    folderStageCache: Map<string, string | undefined>,
+  ): Promise<Set<string>> {
+    const labels = new Set<string>();
+    if (Number(doc.currentVersion) !== Number(versionNum)) return labels;
+    if (doc.isoRevokeOriginalFolderId) labels.add("Revoked");
+    const st = await this.resolveCurrentFolderCdeRootStage(
+      doc.folderId,
+      folderStageCache,
+    );
+    if (st === "WIP") labels.add("WIP");
+    else if (st === "SHARED") labels.add("Shared");
+    else if (st === "PUBLISHED") labels.add("Published");
+    return labels;
+  }
+
+  /**
+   * ISO: one row per logical version across WIP + Shared + Published chain.
+   * Tags only where that version is the **current** head on a copy in that CDE area (e.g. V.3 (WIP)(Shared), V.1 (Published), V.2 none).
+   */
+  private async buildUnifiedIsoFileVersionHistory(
+    entryFileId: Types.ObjectId,
+    projectId: Types.ObjectId,
+  ): Promise<
+    Array<{
+      version: number;
+      stageLabels: string[];
+      fileName?: string;
+      size?: number;
+      mimeType?: string;
+      location?: string;
+      createdAt?: Date;
+      uploadedBy: { fullName: string; email?: string } | null;
+    }>
+  > {
+    const chain = await this.resolveFullIsoPromotionChain(
+      entryFileId,
+      projectId,
+    );
+    if (chain.length === 0) return [];
+
+    const versionNums = new Set<number>();
+    for (const d of chain) {
+      for (const v of d.versions || []) versionNums.add(v.version);
+    }
+    const sortedDesc = [...versionNums].sort((a, b) => b - a);
+    const folderStageCache = new Map<string, string | undefined>();
+    const rows: Array<{
+      version: number;
+      stageLabels: string[];
+      fileName?: string;
+      size?: number;
+      mimeType?: string;
+      location?: string;
+      createdAt?: Date;
+      uploadedBy: { fullName: string; email?: string } | null;
+    }> = [];
+
+    for (const vn of sortedDesc) {
+      const labelSet = new Set<string>();
+      for (const doc of chain) {
+        const has = (doc.versions || []).some(
+          (x: { version: number }) => Number(x.version) === Number(vn),
+        );
+        if (!has) continue;
+        const subs = await this.stageLabelsWhenDocHeadAtCde(
+          doc,
+          vn,
+          folderStageCache,
+        );
+        subs.forEach((x) => labelSet.add(x));
+      }
+
+      let primary: any = null;
+      for (const doc of chain) {
+        const ve = (doc.versions || []).find(
+          (x: { version: number }) => x.version === vn,
+        );
+        if (ve) {
+          primary = ve;
+          break;
+        }
+      }
+      if (!primary) continue;
+
+      const uploader =
+        typeof primary.uploadedBy === "object" &&
+        primary.uploadedBy &&
+        "fullName" in primary.uploadedBy
+          ? {
+              fullName: (primary.uploadedBy as any).fullName,
+              email: (primary.uploadedBy as any).email,
+            }
+          : null;
+
+      rows.push({
+        version: vn,
+        stageLabels: FileService.UNIFIED_VERSION_LABEL_ORDER.filter((x) =>
+          labelSet.has(x),
+        ),
+        fileName: primary.fileName,
+        size: primary.size,
+        mimeType: primary.mimeType,
+        location: primary.location,
+        createdAt: primary.createdAt,
+        uploadedBy: uploader,
+      });
+    }
+
+    return rows;
+  }
+
   // GET FILE DETAIL (Logic cũ, dùng cho nội bộ)
   async getFileDetail(fileId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false })
@@ -814,6 +1056,43 @@ export default class FileService {
         };
       });
 
+    /** Same entries as versionHistory — clients expect `versions` (explorer, History, 2D viewer). */
+    const versions = versionHistory.map((v) => ({
+      version: v.version,
+      fileName: v.fileName,
+      size: v.size,
+      mimeType: v.mimeType,
+      location: v.location,
+      createdAt: v.createdAt,
+      uploadedBy: v.uploadedBy
+        ? {
+            _id: "",
+            fullName: v.uploadedBy.fullName ?? "Unknown",
+            email: v.uploadedBy.email,
+          }
+        : "Unknown",
+    }));
+
+    const projLean = await ProjectModel.findById(projectObjectId)
+      .select("workflowMode")
+      .lean();
+    let unifiedVersionHistory: Array<{
+      version: number;
+      stageLabels: string[];
+      fileName?: string;
+      size?: number;
+      mimeType?: string;
+      location?: string;
+      createdAt?: Date;
+      uploadedBy: { fullName: string; email?: string } | null;
+    }> | null = null;
+    if (parseCdeWorkflowMode(projLean?.workflowMode) === "ISO_19650") {
+      unifiedVersionHistory = await this.buildUnifiedIsoFileVersionHistory(
+        file._id as Types.ObjectId,
+        projectObjectId,
+      );
+    }
+
     return {
       _id: file._id.toString(),
       name: file.name,
@@ -839,6 +1118,8 @@ export default class FileService {
       workflowStatus: file.workflowStatus ?? "WIP_DRAFT",
       submittedForReviewAt: file.submittedForReviewAt ?? null,
       versionHistory,
+      versions,
+      unifiedVersionHistory,
     };
   }
 
@@ -1074,6 +1355,21 @@ export default class FileService {
       "delete"
     );
 
+    const wf = await ProjectModel.findById(projectIdStr)
+      .select("workflowMode")
+      .lean();
+    if (parseCdeWorkflowMode(wf?.workflowMode) === "ISO_19650" && file.folderId) {
+      const stage = await cdeAccess.getIsoCdeRootStageForFolderId(
+        file.folderId.toString()
+      );
+      if (stage === "SHARED" || stage === "PUBLISHED") {
+        throw new AppError(
+          "In ISO 19650 mode, use Revoke instead of delete for items in Shared or Published.",
+          403
+        );
+      }
+    }
+
     if (file.isLocked && file.lockedBy?.toString() !== userId) throw new Error("File is locked. Cannot delete.");
     file.isDeleted = true;
     file.deletedAt = new Date();
@@ -1153,7 +1449,8 @@ export default class FileService {
     fileId: string,
     res: Response,
     version?: number,
-    userId?: string
+    userId?: string,
+    auditActor?: CreateActivityDTO["actor"],
   ) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
@@ -1169,6 +1466,20 @@ export default class FileService {
         fileId,
         "read"
       );
+      if (auditActor) {
+        await logActivitySafe({
+          projectId: projectIdToString(file.projectId),
+          actor: auditActor,
+          actionGroup: "FILE",
+          actionType: "DOWNLOAD",
+          target: {
+            itemId: fileId,
+            itemModel: "File",
+            itemName: file.name ?? "File",
+          },
+          metaData: { version: version ?? null },
+        });
+      }
     }
 
     let targetVersion;
@@ -1204,9 +1515,27 @@ export default class FileService {
     (s3Response.Body as any).pipe(res);
   }
 
-  async downloadFolder(folderId: string, res: Response) {
+  async downloadFolder(
+    folderId: string,
+    res: Response,
+    auditActor?: CreateActivityDTO["actor"],
+  ) {
     const rootFolder = await FolderModel.findOne({ _id: folderId, isDeleted: false });
     if (!rootFolder) throw new Error("Folder not found");
+
+    if (auditActor) {
+      await logActivitySafe({
+        projectId: projectIdToString(rootFolder.projectId),
+        actor: auditActor,
+        actionGroup: "FOLDER",
+        actionType: "DOWNLOAD",
+        target: {
+          itemId: folderId,
+          itemModel: "Folder",
+          itemName: rootFolder.name ?? "Folder",
+        },
+      });
+    }
 
     const allFolders = await FolderModel.find({
       $or: [{ _id: folderId }, { path: { $regex: `,${folderId},` } }],
@@ -1258,7 +1587,23 @@ export default class FileService {
     items: { id: string; type: "file" | "folder" }[],
     projectId: string,
     res: Response,
+    auditActor?: CreateActivityDTO["actor"],
   ) {
+    if (auditActor && projectId) {
+      await logActivitySafe({
+        projectId,
+        actor: auditActor,
+        actionGroup: "FILE",
+        actionType: "DOWNLOAD_BULK",
+        target: {
+          itemId: projectId,
+          itemModel: "Project",
+          itemName: "Bulk download",
+        },
+        metaData: { itemCount: items.length },
+      });
+    }
+
     let projectName = "Project";
     try {
     } catch (e) {}

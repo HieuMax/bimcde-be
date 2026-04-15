@@ -3,6 +3,10 @@ import { authenticate } from "../../../middlewares/authMiddlewares"; // Giả s�
 import PermissionsService from "../services/permissions.services"; // Import service
 import { asyncHandler } from "../../../utils/asyncHandler";
 import ItemAclService from "../services/item-acl.service";
+import {
+  actorFromReq,
+  logActivitySafe,
+} from "../../activity/utils/auditActivity.helpers";
 
 const PermissionsController = express.Router();
 
@@ -41,6 +45,23 @@ PermissionsController.put(
         req.body,
         req.userId // Truyền userId từ middleware authenticate
       );
+
+      const actor = actorFromReq(req);
+      if (actor) {
+        await logActivitySafe({
+          projectId: req.params.projectId,
+          actor,
+          actionGroup: "PERMISSION",
+          actionType: "PROJECT_SETTINGS_UPDATE",
+          target: {
+            itemId: req.params.projectId,
+            itemModel: "Project",
+            itemName: "Project permissions",
+          },
+          description: "Updated project-level permission flags",
+          metaData: req.body,
+        });
+      }
 
       res.status(200).json({
         success: true,
@@ -91,6 +112,31 @@ PermissionsController.put(
         explicitGrants: req.body.explicitGrants ?? [],
       }
     );
+    const actor = actorFromReq(req);
+    const rt = String(req.params.resourceType).toLowerCase();
+    const itemModel =
+      rt === "folder" ? ("Folder" as const) : ("File" as const);
+    if (actor) {
+      await logActivitySafe({
+        projectId: req.params.projectId,
+        actor,
+        actionGroup: "PERMISSION",
+        actionType: "ITEM_ACL_UPDATE",
+        target: {
+          itemId: req.params.resourceId,
+          itemModel,
+          itemName: `${rt} ACL`,
+        },
+        description: `Updated access control for ${rt} ${req.params.resourceId}`,
+        metaData: {
+          defaultAccess: req.body.defaultAccess,
+          inheritFromParent: req.body.inheritFromParent,
+          grantCount: Array.isArray(req.body.explicitGrants)
+            ? req.body.explicitGrants.length
+            : 0,
+        },
+      });
+    }
     res.status(200).json({
       success: true,
       message: "Permissions updated.",

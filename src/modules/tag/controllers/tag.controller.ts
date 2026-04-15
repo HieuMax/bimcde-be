@@ -2,6 +2,13 @@ import express, { Request, Response } from "express";
 import TagService from "../services/tag.service";
 import { asyncHandler } from "../../../utils/asyncHandler";
 import { AppError } from "../../../utils/AppError";
+import { authenticate } from "../../../middlewares/authMiddlewares";
+import TagModel from "../schemas/tag.schema";
+import {
+  actorFromReq,
+  logActivitySafe,
+  projectIdToString,
+} from "../../activity/utils/auditActivity.helpers";
 
 const TagController = express.Router();
 const tagService = new TagService();
@@ -30,6 +37,7 @@ TagController.get(
  */
 TagController.post(
   "/",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { name, color, projectId } = req.body;
 
@@ -38,6 +46,22 @@ TagController.post(
     }
 
     const newTag = await tagService.createTag({ name, color, projectId });
+    const actor = actorFromReq(req);
+    if (actor) {
+      await logActivitySafe({
+        projectId: projectIdToString(newTag.projectId),
+        actor,
+        actionGroup: "TAG",
+        actionType: "CREATE",
+        target: {
+          itemId: String(newTag._id),
+          itemModel: "Tag",
+          itemName: newTag.name,
+        },
+        description: `Created tag "${newTag.name}"`,
+        metaData: { color: newTag.color },
+      });
+    }
     res.status(201).json(newTag);
   })
 );
@@ -49,6 +73,7 @@ TagController.post(
  */
 TagController.put(
   "/:id",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { name, color } = req.body; // Allow partial update
@@ -59,6 +84,22 @@ TagController.put(
     }
 
     const updatedTag = await tagService.updateTag(id, { name, color });
+    const actor = actorFromReq(req);
+    if (actor) {
+      await logActivitySafe({
+        projectId: projectIdToString(updatedTag.projectId),
+        actor,
+        actionGroup: "TAG",
+        actionType: "UPDATE",
+        target: {
+          itemId: String(updatedTag._id),
+          itemModel: "Tag",
+          itemName: updatedTag.name,
+        },
+        description: `Updated tag "${updatedTag.name}"`,
+        metaData: { name, color },
+      });
+    }
     res.json(updatedTag);
   })
 );
@@ -69,12 +110,31 @@ TagController.put(
  */
 TagController.delete(
   "/:id",
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
     if (!id) throw new AppError("Tag ID is required", 400);
 
+    const existing = await TagModel.findById(id).lean();
+    if (!existing) throw new AppError("Tag not found", 404);
+
     await tagService.deleteTag(id);
+    const actor = actorFromReq(req);
+    if (actor) {
+      await logActivitySafe({
+        projectId: projectIdToString(existing.projectId),
+        actor,
+        actionGroup: "TAG",
+        actionType: "DELETE",
+        target: {
+          itemId: id,
+          itemModel: "Tag",
+          itemName: existing.name,
+        },
+        description: `Deleted tag "${existing.name}"`,
+      });
+    }
     res.json({ message: "Deleted successfully" });
   })
 );

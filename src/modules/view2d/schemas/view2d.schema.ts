@@ -52,6 +52,7 @@ const View2DSchema: Schema = new Schema(
     scale: { type: Number, default: 1 },
     rotation: { type: Number, default: 0 },
     previewSrc: { type: String, default: null },
+    viewState: { type: Schema.Types.Mixed, default: {} },
 
     isDeleted: { type: Boolean, default: false },
   },

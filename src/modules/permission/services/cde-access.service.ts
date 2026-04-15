@@ -153,6 +153,13 @@ export default class CdeAccessService {
     return root?.cdeStage;
   }
 
+  /** Public: CDE stage of the root (1. WIP … 4. Archived) containing this folder. */
+  async getIsoCdeRootStageForFolderId(
+    folderId: string
+  ): Promise<CdeFolderStage | undefined> {
+    return this.getFolderCdeRootStage(folderId);
+  }
+
   private async isFolderUnderArchivedStage(folderId: string): Promise<boolean> {
     const s = await this.getFolderCdeRootStage(folderId);
     return s === "ARCHIVED";
