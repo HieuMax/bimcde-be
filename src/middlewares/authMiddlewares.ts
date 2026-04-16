@@ -44,19 +44,28 @@ export const authenticate = async (
 
     next();
   } catch (error) {
-    console.log("❌ [AUTHENTICATE] Token validation error:", error);
     if (error instanceof TokenExpiredError) {
+      // Access JWT hết hạn — client nên gọi /accounts/refresh-token (không log full stack).
+      console.warn(
+        "[AUTHENTICATE] Access token expired",
+        error.expiredAt?.toISOString?.() ?? "",
+      );
       return res.status(401).json({
         success: false,
-        message: "Refresh token đã hết hạn. Vui lòng đăng nhập lại.",
+        code: "ACCESS_TOKEN_EXPIRED",
+        message:
+          "Phiên đăng nhập đã hết hạn. Vui lòng làm mới token hoặc đăng nhập lại.",
       });
     }
     if (error instanceof JsonWebTokenError) {
+      console.warn("[AUTHENTICATE] Invalid JWT:", error.message);
       return res.status(401).json({
         success: false,
+        code: "INVALID_ACCESS_TOKEN",
         message: "Token không hợp lệ. Vui lòng đăng nhập lại.",
       });
     }
+    console.error("❌ [AUTHENTICATE] Unexpected error:", error);
     res.status(401).json({
       code: "AuthenticationError",
       message: "Token không hợp lệ hoặc đã hết hạn.",

@@ -36,6 +36,21 @@ export interface IView extends Document {
   scale: number;
   rotation: number;
   previewSrc?: string;
+
+  sharedWith?: {
+    isPublic?: boolean;
+    users?: Array<
+      | Types.ObjectId
+      | {
+          _id?: string;
+          fullName?: string;
+          email?: string;
+          label?: string;
+          type?: string;
+        }
+    >;
+  };
+  
   viewState?: IViewState;
 
   // Metadata

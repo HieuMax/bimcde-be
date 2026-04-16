@@ -1,6 +1,16 @@
 import { Types } from "mongoose";
 import View2DModel from "../schemas/view2d.schema";
 import { AppError } from "../../../utils/AppError";
+import nodemailer from "nodemailer";
+import { env } from "../../../env";
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: env.MAIL_USER,
+    pass: env.MAIL_PASS,
+  },
+});
 
 export default class View2DService {
     async createView(payload: {
@@ -13,10 +23,39 @@ export default class View2DService {
       scale: number;
       rotation: number;
       previewSrc?: string;
+      sharedWith?: {
+        isPublic?: boolean;
+        users?: Array<
+          | string
+          | {
+              id?: string;
+              label?: string;
+              fullName?: string;
+              email?: string;
+              type?: string;
+            }
+        >;
+      };
       viewState?: any;
   }) {
     try {
       console.log("💾 [VIEW SERVICE] Creating view with payload:", payload);
+
+        const sharedWith = payload.sharedWith?.users?.map((user) => {
+          if (typeof user === "string") {
+            return {
+              label: user,
+              type: "USER",
+            };
+          }
+          return {
+            userId: user.id ? new Types.ObjectId(user.id) : undefined,
+            fullName: user.fullName || user.label,
+            email: user.email,
+            label: user.label || user.fullName,
+            type: user.type || "USER",
+          };
+        }) || [];
 
         const newView = await View2DModel.create({
           name: payload.name,
@@ -25,6 +64,10 @@ export default class View2DService {
           fileId: new Types.ObjectId(payload.fileId),
           createdBy: new Types.ObjectId(payload.userId),
           updatedBy: new Types.ObjectId(payload.userId),
+          sharedWith: {
+            isPublic: payload.sharedWith?.isPublic || false,
+            users: sharedWith,
+          },
           pageIndex: payload.pageIndex ?? 1,
           scale: payload.scale ?? 1,
           rotation: payload.rotation ?? 0,
@@ -32,10 +75,13 @@ export default class View2DService {
           viewState: payload.viewState,
         });
 
-      return await newView.populate([
+      const createdView = await newView.populate([
         { path: "createdBy", select: "fullName email" },
         { path: "updatedBy", select: "fullName email" },
       ]);
+
+      await this.sendSharedViewEmails(createdView.sharedWith?.users || [], payload.projectId, payload.fileId, payload.name);
+      return createdView;
     } catch (error) {
       console.error("❌ [VIEW SERVICE] Error creating view:", error);
       throw new AppError("Cannot create view", 500);
@@ -118,6 +164,45 @@ export default class View2DService {
     }
 
     return updated;
+  }
+
+  private async sendSharedViewEmails(
+    recipients: Array<any>,
+    projectId: string,
+    fileId: string,
+    viewName: string,
+  ) {
+    try {
+      const emails = recipients
+        .map((recipient) => recipient.email)
+        .filter((email: string | undefined) => typeof email === "string" && email.length > 0);
+
+      if (emails.length === 0 || !env.MAIL_USER || !env.MAIL_PASS) {
+        return;
+      }
+
+      const clientUrl = env.CLIENT_URL || "";
+      const viewLink = `${clientUrl}/projects/${projectId}/viewer/${fileId}`;
+
+      const mailOptions = {
+        from: `"BIM CDE" <${env.MAIL_USER}>`,
+        to: Array.from(new Set(emails)).join(", "),
+        subject: `A new view was shared with you: ${viewName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; color: #111;">
+            <h2>A view has been shared with you</h2>
+            <p>The view "${viewName}" was created and shared with you in BIM CDE.</p>
+            <p><a href="${viewLink}" style="color:#fff;background:#2563eb;padding:10px 14px;text-decoration:none;border-radius:6px;">Open View</a></p>
+            <p>If you do not expect this message, please ignore it.</p>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log(`✅ Shared view notification sent to ${emails.join(", ")}`);
+    } catch (error) {
+      console.error("❌ Error sending shared view email:", error);
+    }
   }
 
 }

@@ -26,6 +26,7 @@ View2DController.post(
       scale, 
       rotation, 
       previewSrc,
+      sharedWithUsers,
       viewState,
       createdBy,
       updatedBy
@@ -42,25 +43,21 @@ View2DController.post(
       throw new AppError("Unauthorized: User ID not found", 401);
     }
 
-    console.log("📥 [CREATE VIEW] User ID:", userId);
-    console.log("📥 [CREATE VIEW] Created By:", createdBy);
-
     const result = await view2dService.createView({
       name,
       description,
       projectId,
       fileId,
       userId,
-      // pageIndex,
-      // scale,
-      // rotation,
       pageIndex: Number(pageIndex),
       scale: Number(scale),
       rotation: Number(rotation),
       previewSrc,
-      viewState,
-      // createdBy,
-      // updatedBy
+      sharedWith: {
+        isPublic: false,
+        users: sharedWithUsers,
+      },
+      viewState,      
     });
 
     const actor = actorFromReq(req);

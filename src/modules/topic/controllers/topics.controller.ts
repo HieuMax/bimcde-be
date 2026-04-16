@@ -412,4 +412,35 @@ TopicsController.delete(
   }),
 );
 
+TopicsController.delete(
+  "/items/:topicItemId/snapshots/:snapshotId",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId, snapshotId } = req.params;
+
+    const topicItem = await topicsService.removeSnapshot(
+      String(req.userId),
+      topicItemId,
+      snapshotId
+    );
+
+    res.json(topicItem);
+  })
+);
+
+TopicsController.delete(
+  "/items/:topicItemId/snapshots",
+  authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { topicItemId } = req.params;
+
+    const topicItem = await topicsService.removeAllSnapshots(
+      String(req.userId),
+      topicItemId
+    );
+
+    res.json(topicItem);
+  })
+);
+
 export default TopicsController;

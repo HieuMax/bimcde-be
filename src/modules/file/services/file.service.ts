@@ -93,21 +93,20 @@ export default class FileService {
 
     const clientUrl = env.CLIENT_URL
     const shareLink = `${clientUrl}/share/${token}`;
+    const viewerLink = `${clientUrl}/projects/${finalProjectId}/viewer/${file._id}?shareToken=${token}`;
     const apiUrl = env.APP_URL 
     const downloadLink = `${apiUrl}/files/public/${file._id}/download?shareToken=${token}`;
 
-    console.log("🔗 Generated Share Link:", shareLink, downloadLink);
+    console.log("🔗 Generated Share Link:", shareLink, viewerLink, downloadLink);
 
-    // 4. Gửi Mail (Nếu có danh sách người nhận)
     if (payload.recipients && payload.recipients.length > 0) {
-      // Kiểm tra cấu hình mail trước khi gửi để tránh crash
       if (!env.MAIL_USER || !env.MAIL_PASS) {
         console.error("❌ MAIL ERROR: Chưa cấu hình MAIL_USER hoặc MAIL_PASS trong .env");
       } else {
         this.sendShareEmails(
           payload.recipients,
           fileName,
-          shareLink,
+          viewerLink,
           payload.accessLevel, 
           downloadLink,
           payload.note,

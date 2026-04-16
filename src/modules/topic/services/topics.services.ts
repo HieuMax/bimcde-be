@@ -796,4 +796,37 @@ export default class TopicsService {
     return topicItem;
   }
 
+  async removeSnapshot(userId: string, topicItemId: string, snapshotId: string) {
+    const topic = await TopicItemModel.findById(topicItemId);
+
+    if (!topic) {
+      throw new Error("Topic not found");
+    }
+
+    const member = await projectMemberSchema.findOne({
+      userId,
+      projectId: topic.projectId,
+    });
+
+    if (!member) {
+      throw new Error("Bạn không có quyền truy cập vào dự án này.");
+    }
+
+    topic.snapshots = (topic.snapshots || []).filter(
+      (s: any) => String(s._id) !== snapshotId
+    );
+
+    await topic.save();
+    return topic;
+  }
+
+  async removeAllSnapshots(userId: string, topicItemId: string) {
+    const topic = await TopicItemModel.findById(topicItemId);
+    if (!topic) throw new Error("Topic not found");
+
+    topic.snapshots = [];
+    await topic.save();
+
+    return topic;
+  }
 }
