@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { AppError } from "../../../utils/AppError";
 import Todo2DModel from "../../todo2d/schemas/todo2d.schema";
 import Todo3DModel from "../../todo3d/schemas/todo.schema";
+import TodoModel from "../../todo/todo/schemas/todo.schema";
 import TopicItemModel from "../schemas/topic-item.schema";
 
 export async function countNonTerminalTodosForTopic(
@@ -31,6 +32,57 @@ export function isTopicResolutionStatus(s: string): boolean {
 }
 
 /**
+ * Count all open todos related to a file in Shared→Published context.
+ * Includes:
+ * - file-level Todo2D (linked by fileId)
+ * - Todo3D linked to topics of this file
+ * - dashboard Todo linked to topicItemId of this file
+ */
+export async function countOpenTodosLinkedToFile(
+  projectId: string,
+  fileId: string,
+): Promise<number> {
+  const pid = new Types.ObjectId(projectId);
+  const fid = new Types.ObjectId(fileId);
+
+  const topicOr = [{ fileId: fid }, { "attachments.fileId": fileId }];
+  const topicDocs = await TopicItemModel.find({
+    projectId: pid,
+    $or: topicOr,
+  })
+    .select({ _id: 1 })
+    .lean();
+
+  const topicIds = topicDocs.map((t) => (t as { _id: Types.ObjectId })._id);
+
+  const [openTodo2DCount, openTodo3DCount, openDashboardTodoCount] =
+    await Promise.all([
+      Todo2DModel.countDocuments({
+        projectId,
+        fileId,
+        isDeleted: { $ne: true },
+        status: { $nin: ["Done", "Closed"] },
+      }),
+      topicIds.length
+        ? Todo3DModel.countDocuments({
+            projectId: pid,
+            topicId: { $in: topicIds },
+            status: { $nin: ["Done", "Closed"] },
+          })
+        : 0,
+      topicIds.length
+        ? TodoModel.countDocuments({
+            projectId: pid,
+            topicItemId: { $in: topicIds },
+            status: { $nin: ["Done", "Closed", "done", "closed"] },
+          })
+        : 0,
+    ]);
+
+  return openTodo2DCount + openTodo3DCount + openDashboardTodoCount;
+}
+
+/**
  * Shared→Published: block if any linked topic is still "active" (not Done/Resolved/Closed),
  * or any file-level Todo2D is not Done/Closed.
  */
@@ -46,20 +98,21 @@ export async function assertFileSafeToPublish(
     { "attachments.fileId": fileId },
   ];
 
-  const unresolvedTopics = await TopicItemModel.countDocuments({
+  const topicDocs = await TopicItemModel.find({
     projectId: pid,
     $or: topicOr,
-    status: {
-      $nin: ["Done", "Resolved", "Closed"],
-    },
-  });
+  })
+    .select({ _id: 1, status: 1 })
+    .lean();
 
-  const openTodos = await Todo2DModel.countDocuments({
-    projectId,
-    fileId,
-    isDeleted: { $ne: true },
-    status: { $nin: ["Done", "Closed"] },
-  });
+  const unresolvedTopics = topicDocs.filter(
+    (t) =>
+      !["Done", "Resolved", "Closed"].includes(
+        String((t as { status?: string }).status ?? ""),
+      ),
+  ).length;
+
+  const openTodos = await countOpenTodosLinkedToFile(projectId, fileId);
 
   if (unresolvedTopics > 0 || openTodos > 0) {
     throw new AppError(

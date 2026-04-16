@@ -7,8 +7,10 @@ import projectSchema from "../../project/schemas/project.schema";
 import projectMemberSchema from "../../project/schemas/project-member.schema";
 import groupMemberModel from "../../team/schemas/group-member.schema";
 import TopicItemModel from "../../topic/schemas/topic-item.schema";
-import Todo2DModel from "../../todo2d/schemas/todo2d.schema";
-import { assertFileSafeToPublish } from "../../topic/utils/topic-todo-collaboration.helpers";
+import {
+  assertFileSafeToPublish,
+  countOpenTodosLinkedToFile,
+} from "../../topic/utils/topic-todo-collaboration.helpers";
 import { isTopicStatusUnresolvedForPublish } from "../../../constants/topic-todo-workflow";
 import notificationModel from "../../notification/schemas/notification.schemas"; 
 import { getIO } from "../../../lib/socket.lib";
@@ -361,13 +363,6 @@ export default class FilePromoteService {
     const projectId = projectIdStr;
     const fidStr = fileId;
 
-    const openTodosCount = await Todo2DModel.countDocuments({
-      projectId,
-      fileId: fidStr,
-      isDeleted: { $ne: true },
-      status: { $nin: ["Done", "Closed"] },
-    });
-
     const pid = new Types.ObjectId(projectId);
     const topicDocs = await TopicItemModel.find({
       projectId: pid,
@@ -376,8 +371,10 @@ export default class FilePromoteService {
         { "attachments.fileId": fidStr },
       ],
     })
-      .select({ status: 1 })
+      .select({ _id: 1, status: 1 })
       .lean();
+
+    const openTodosCount = await countOpenTodosLinkedToFile(projectId, fidStr);
 
     const linkedTopicsTotal = topicDocs.length;
     const linkedTopicsResolved = topicDocs.filter(
