@@ -50,6 +50,8 @@ export default class FileService {
     expiresAt?: Date;
     accessLevel: string;
     showLatestVersion: boolean;
+    /** Used when showLatestVersion is false; defaults to file.currentVersion */
+    pinnedVersion?: number | null;
   }) {
     // 1. Lấy thông tin file
     const file = await FileModel.findById(payload.fileId);
@@ -71,6 +73,20 @@ export default class FileService {
     }
     const token = uuidv4();
 
+    const versions = (file as any).versions || [];
+    let pinnedVersion: number | null = null;
+    if (!payload.showLatestVersion) {
+      const want =
+        payload.pinnedVersion != null && payload.pinnedVersion !== undefined
+          ? Number(payload.pinnedVersion)
+          : Number(file.currentVersion);
+      const exists = versions.some((v: { version: number }) => v.version === want);
+      if (!exists) {
+        throw new AppError("Phiên bản được chọn không tồn tại trên file này", 400);
+      }
+      pinnedVersion = want;
+    }
+
     console.log("🧪 SHARE DEBUG", {
       payloadFileId: payload.fileId,
       fileExists: !!file,
@@ -88,6 +104,7 @@ export default class FileService {
       expiresAt: payload.expiresAt,
       accessLevel: payload.accessLevel,
       showLatestVersion: payload.showLatestVersion,
+      pinnedVersion,
       token: token,
     });
 
@@ -266,6 +283,44 @@ export default class FileService {
     console.log(`✅ Mail sent successfully.`);
   }
 
+  /** Resolve which file version a share link may read (latest vs pinned). */
+  private resolveSharedFileVersionDoc(
+    file: { currentVersion?: number; versions?: Array<{ version: number; storageKey?: string; location?: string; mimeType?: string; size?: number }> },
+    share: { showLatestVersion?: boolean; pinnedVersion?: number | null },
+  ): { effectiveVersion: number; versionDoc: NonNullable<typeof file.versions>[number] } {
+    const versions = file.versions || [];
+    if (!versions.length) {
+      throw new AppError("File không có phiên bản hợp lệ", 404);
+    }
+
+    const showLatest = share.showLatestVersion !== false;
+
+    let effectiveVersion: number;
+    if (showLatest) {
+      effectiveVersion = Number(file.currentVersion);
+    } else {
+      const pin =
+        share.pinnedVersion != null && share.pinnedVersion !== undefined
+          ? Number(share.pinnedVersion)
+          : Number(file.currentVersion);
+      effectiveVersion = pin;
+    }
+
+    let versionDoc = versions.find((v) => v.version === effectiveVersion);
+    if (!versionDoc) {
+      if (showLatest) {
+        versionDoc =
+          versions.find((v) => v.version === file.currentVersion) ??
+          versions[versions.length - 1];
+        effectiveVersion = versionDoc.version;
+      } else {
+        throw new AppError("Phiên bản trong link chia sẻ không còn tồn tại", 410);
+      }
+    }
+
+    return { effectiveVersion, versionDoc };
+  }
+
   async downloadPublicFile(fileId: string, shareToken: string, res: Response) {
     // a. Validate Token
     const share = await ShareModel.findOne({ token: shareToken, fileId: new Types.ObjectId(fileId) }).lean();
@@ -281,22 +336,21 @@ export default class FileService {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new AppError("File không tồn tại", 404);
 
-    const latestVersion = file.versions.find(v => v.version === file.currentVersion) 
-                       || file.versions[file.versions.length - 1];
+    const { versionDoc: targetVersion } = this.resolveSharedFileVersionDoc(file, share);
 
-    if (!latestVersion || !latestVersion.storageKey) throw new AppError("Nội dung file bị lỗi", 404);
+    if (!targetVersion || !targetVersion.storageKey) throw new AppError("Nội dung file bị lỗi", 404);
 
     // d. Stream File từ R2/S3 về Client
     try {
       const command = new GetObjectCommand({
         Bucket: env.R2_BUCKET_NAME,
-        Key: latestVersion.storageKey,
+        Key: targetVersion.storageKey,
       });
       const s3Response = await s3Client.send(command);
 
       // Set Header để trình duyệt hiểu là file tải về
       res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
-      res.setHeader("Content-Type", latestVersion.mimeType || "application/octet-stream");
+      res.setHeader("Content-Type", targetVersion.mimeType || "application/octet-stream");
       
       // Pipe stream
       (s3Response.Body as any).pipe(res);
@@ -337,8 +391,10 @@ export default class FileService {
         throw new AppError("File không tồn tại hoặc đã bị xóa", 404);
     }
 
-    const currentVer = file.versions?.find(v => v.version === file.currentVersion) 
-                    || file.versions?.[file.versions.length - 1];
+    const { effectiveVersion, versionDoc: currentVer } = this.resolveSharedFileVersionDoc(
+      file,
+      share,
+    );
 
     let signedUrl = "";
     
@@ -369,15 +425,16 @@ export default class FileService {
       fileUrl: signedUrl,
       previewSrc: signedUrl,
 
-      currentVersion: file.currentVersion,
+      currentVersion: effectiveVersion,
 
-      versions: (file.versions || []).map(v => ({
-        version: v.version,
-        size: v.size,
-        mimeType: v.mimeType,
-
-        location: signedUrl,
-      })),
+      versions: [
+        {
+          version: currentVer.version,
+          size: currentVer.size,
+          mimeType: currentVer.mimeType,
+          location: signedUrl,
+        },
+      ],
 
       mimeType: currentVer?.mimeType || "application/octet-stream",
       size: currentVer?.size || 0,
@@ -497,47 +554,6 @@ export default class FileService {
   }
 
   // RENAME FILE
-  // async renameFile(fileId: string, newNameWithoutExt: string, userId: string) {
-  //   const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
-  //   if (!file) throw new Error("File not found");
-
-  //   const ext = path.extname(file.name);
-  //   const newFullName = `${newNameWithoutExt}${ext}`;
-
-  //   if (file.name === newFullName) return file;
-
-  //   const duplicate = await FileModel.findOne({
-  //     folderId: file.folderId,
-  //     name: newFullName,
-  //     isDeleted: false,
-  //   });
-  //   if (duplicate) throw new Error("A file with this name already exists.");
-
-  //   if (file.isLocked && file.lockedBy?.toString() !== userId) {
-  //     throw new Error("File is locked by another user.");
-  //   }
-
-  //   const lastVer = file.versions[file.versions.length - 1];
-  //   const nextVersion = file.currentVersion + 1;
-
-  //   const newVersionData = {
-  //     version: nextVersion,
-  //     fileName: newFullName,
-  //     storageKey: lastVer.storageKey,
-  //     location: lastVer.location,
-  //     size: lastVer.size,
-  //     mimeType: lastVer.mimeType,
-  //     uploadedBy: new Types.ObjectId(userId),
-  //     createdAt: new Date(),
-  //   };
-
-  //   file.name = newFullName;
-  //   file.currentVersion = nextVersion;
-  //   file.versions.push(newVersionData);
-  //   return await file.save();
-  // }
-
-  // RENAME FILE
   async renameFile(fileId: string, newNameFromClient: string, userId: string) {
     const file = await FileModel.findOne({ _id: fileId, isDeleted: false });
     if (!file) throw new Error("File not found");
@@ -557,26 +573,22 @@ export default class FileService {
     let finalName = newNameFromClient.trim();
     
     if (ext) {
-      // 1. Gọt sạch các khoảng trắng và dấu chấm ở cuối
       finalName = finalName.replace(/[\.\s]+$/, '');
       
-      // 2. Vòng lặp xóa sạch TẤT CẢ các đuôi bị lặp (vd: gọt sạch .pdf.pdf.pdf)
       while (finalName.toLowerCase().endsWith(ext.toLowerCase())) {
         finalName = finalName.slice(0, -ext.length);
         finalName = finalName.replace(/[\.\s]+$/, ''); 
       }
     }
 
-    // 🌟 ĐÃ FIX LỖI: Sử dụng 'finalName' thay vì 'newNameWithoutExt'
     const newFullName = `${finalName}${ext}`;
 
-    // Nếu tên không thay đổi thì return luôn, không làm gì cả
     if (file.name === newFullName) return file;
 
     const duplicate = await FileModel.findOne({
       folderId: file.folderId,
       name: newFullName,
-      projectId: file.projectId, // Đảm bảo check trùng trong cùng project
+      projectId: file.projectId, 
       isDeleted: false,
     });
     if (duplicate) throw new Error("A file with this name already exists.");
@@ -710,30 +722,48 @@ export default class FileService {
       }
     }
 
-    const newVersionData = {
-      fileName: finalName,
-      storageKey: fileData.storageKey,
-      location: fileData.location,
-      size: fileData.size,
-      mimeType: fileData.mimeType,
-      uploadedBy: new Types.ObjectId(userId),
-      createdAt: new Date(),
-    };
-
     if (existingFile) {
       const nextVersion = existingFile.currentVersion + 1;
-      existingFile.versions.push({
-        ...newVersionData,
-        version: nextVersion,
-      });
-      existingFile.currentVersion = nextVersion;
-      existingFile.workflowStatus = "WIP_DRAFT";
-      existingFile.submittedForReviewAt = null;
-      existingFile.submittedForReviewBy = null;
-      existingFile.submittedForReviewVersion = null;
-      existingFile.wipPromotedToSharedVersion = null;
-      existingFile.sharedPromotedToPublishedVersion = null;
-      return await existingFile.save();
+      console.log(`📝 [handleFileUpload] Adding version ${nextVersion} to file "${finalName}"`);
+      console.log(`   Current versions count: ${existingFile.versions.length}`);
+      console.log(`   New storageKey: ${fileData.storageKey}`);
+      
+      // Use MongoDB $push operator to atomically add version and update metadata
+      const result = await FileModel.findByIdAndUpdate(
+        existingFile._id,
+        {
+          $push: {
+            versions: {
+              version: nextVersion,
+              fileName: finalName,
+              storageKey: fileData.storageKey,
+              location: fileData.location,
+              size: fileData.size,
+              mimeType: fileData.mimeType,
+              uploadedBy: new Types.ObjectId(userId),
+              createdAt: new Date(),
+            },
+          },
+          $set: {
+            currentVersion: nextVersion,
+            workflowStatus: "WIP_DRAFT",
+            submittedForReviewAt: null,
+            submittedForReviewBy: null,
+            submittedForReviewVersion: null,
+            wipPromotedToSharedVersion: null,
+            sharedPromotedToPublishedVersion: null,
+          },
+        },
+        { new: true }
+      );
+      
+      if (!result) {
+        throw new AppError("Failed to update file with new version", 500);
+      }
+      
+      console.log(`✅ [handleFileUpload] File saved with ${result.versions.length} versions`);
+      console.log(`   All versions:`, result.versions.map((v: any) => ({ version: v.version, key: v.storageKey })));
+      return result;
     }
 
     const newFile = new FileModel({
@@ -741,7 +771,16 @@ export default class FileService {
       folderId: validFolderId,
       projectId: projectObjId,
       currentVersion: 1,
-      versions: [{ ...newVersionData, version: 1 }],
+      versions: [{
+        version: 1,
+        fileName: finalName,
+        storageKey: fileData.storageKey,
+        location: fileData.location,
+        size: fileData.size,
+        mimeType: fileData.mimeType,
+        uploadedBy: new Types.ObjectId(userId),
+        createdAt: new Date(),
+      }],
       createdBy: userOid,
       workflowStatus: "WIP_DRAFT",
       submittedForReviewAt: null,
@@ -1000,6 +1039,12 @@ export default class FileService {
       .populate("projectId", "_id name");
 
     if (!file) throw new AppError("File not found", 404);
+
+    console.log(`📖 [getFileDetail] File "${file.name}" has ${file.versions.length} versions:`);
+    console.log(`   Current version: ${file.currentVersion}`);
+    file.versions.forEach((v: any) => {
+      console.log(`   V${v.version}: storageKey="${v.storageKey}", location="${v.location}"`);
+    });
 
     const currentVersion = file.versions.find(
       (v) => v.version === file.currentVersion
