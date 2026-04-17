@@ -146,11 +146,40 @@ export default class View2DService {
   }
 
   async updateView(viewId: string, data: any, userId: string) {
+    const view = await View2DModel.findById(viewId);
+    if (!view) {
+      throw new AppError("View not found", 404);
+    }
+
+    // Transform sharedWith data if provided
+    let updateData = { ...data };
+    if (data.sharedWith && data.sharedWith.users) {
+      const sharedWith = data.sharedWith.users.map((user: any) => {
+        if (typeof user === "string") {
+          return {
+            label: user,
+            type: "USER",
+          };
+        }
+        return {
+          userId: user.id ? new Types.ObjectId(user.id) : undefined,
+          fullName: user.fullName || user.label,
+          email: user.email,
+          label: user.label || user.fullName,
+          type: user.type || "USER",
+        };
+      });
+      updateData.sharedWith = {
+        isPublic: data.sharedWith.isPublic || false,
+        users: sharedWith,
+      };
+    }
+
     const updated = await View2DModel.findByIdAndUpdate(
       viewId,
       {
         $set: {
-          ...data,
+          ...updateData,
           updatedBy: new Types.ObjectId(userId),
         },
       },
@@ -161,6 +190,16 @@ export default class View2DService {
 
     if (!updated) {
       throw new AppError("View not found", 404);
+    }
+
+    // Send emails to newly shared users
+    if (updated.sharedWith?.users) {
+      await this.sendSharedViewEmails(
+        updated.sharedWith.users,
+        String(updated.projectId),
+        String(updated.fileId),
+        updated.name
+      );
     }
 
     return updated;

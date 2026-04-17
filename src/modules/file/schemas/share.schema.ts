@@ -13,6 +13,8 @@ export interface IShare extends Document {
   accessLevel: ShareAccessLevel;
   expiresAt?: Date; 
   showLatestVersion: boolean;
+  /** When showLatestVersion is false, recipients only see this file version. */
+  pinnedVersion?: number | null;
   note?: string;
   token?: string;
   createdAt: Date;
@@ -39,6 +41,7 @@ const ShareSchema = new Schema<IShare>(
     },
     expiresAt: { type: Date, default: null }, 
     showLatestVersion: { type: Boolean, default: false },
+    pinnedVersion: { type: Number, default: null },
     note: String,
     token: { type: String, index: true },
   },

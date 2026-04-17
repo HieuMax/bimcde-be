@@ -25,7 +25,8 @@ const Todo2DSchema = new Schema<ITodo>(
     },
     dueDate: { type: Date },
     completion: { type: Number, default: 0 },
-    assignee: { type: String },
+    assignee: { type: String }, // Backward compatibility: single assignee
+    assignees: [{ type: String }], // NEW: Multiple assignees
     tags: [{ type: String }],
     
     // --- LIÊN KẾT ---
