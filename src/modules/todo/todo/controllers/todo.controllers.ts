@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import mongoose from "mongoose";
 import { authenticate } from "../../../../middlewares/authMiddlewares";
 import TodoService from "../services/todo.services";
 import { asyncHandler } from "../../../../utils/asyncHandler";
@@ -164,6 +165,7 @@ TodoController.put(
       items,
       viewState,
       attachments,
+      topicItemId,
     } = req.body;
 
     if (!id) {
@@ -198,6 +200,15 @@ TodoController.put(
     if (items !== undefined) updateData.items = items;
     if (viewState !== undefined) updateData.viewState = viewState;
     if (attachments !== undefined) updateData.attachments = attachments;
+    if (topicItemId !== undefined) {
+      if (topicItemId === null || topicItemId === "") {
+        updateData.topicItemId = null;
+      } else if (mongoose.Types.ObjectId.isValid(String(topicItemId))) {
+        updateData.topicItemId = new mongoose.Types.ObjectId(String(topicItemId));
+      } else {
+        throw new AppError("Invalid topicItemId", 400);
+      }
+    }
 
     if (Object.keys(updateData).length === 0) {
       throw new AppError("Nothing to update", 400);
