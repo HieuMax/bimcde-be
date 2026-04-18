@@ -34,13 +34,16 @@ router.post(
       throw new AppError("Unauthorized", 401);
     }
 
-    const { 
-      fileId, 
+    const {
+      fileId,
       projectId,
       recipients,
-      note, 
+      note,
       type,
-      expiresAt 
+      expiresAt,
+      accessLevel: accessLevelBody,
+      showLatestVersion: showLatestBody,
+      pinnedVersion: pinnedBody,
     } = req.body;
 
     console.log("📧 SHARE REQUEST:", { fileId, projectId, recipients });
@@ -50,6 +53,18 @@ router.post(
     }
 
     const shareType = type || "PUBLIC_LINK";
+    const accessLevel =
+      accessLevelBody === "DOWNLOAD" ? "DOWNLOAD" : "VIEW";
+    const showLatestVersion =
+      typeof showLatestBody === "boolean" ? showLatestBody : true;
+    const pinnedVersion =
+      showLatestVersion ||
+      pinnedBody === undefined ||
+      pinnedBody === null ||
+      pinnedBody === ""
+        ? null
+        : Number(pinnedBody);
+
     const result = await fileService.shareFile({
       fileId,
       projectId,
@@ -58,8 +73,9 @@ router.post(
       recipients: recipients || [],
       note,
       expiresAt,
-      accessLevel: "VIEW",
-      showLatestVersion: true
+      accessLevel,
+      showLatestVersion,
+      pinnedVersion: showLatestVersion ? null : pinnedVersion,
     });
 
     const actor = actorFromReq(req);

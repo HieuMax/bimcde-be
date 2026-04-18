@@ -10,7 +10,8 @@ export interface ITodo extends Document {
   
   dueDate?: Date;
   completion: number; // 0 - 100
-  assignee?: string;
+  assignee?: string; // Backward compatibility: single assignee
+  assignees?: string[]; // NEW: Multiple assignees
   tags: string[];
 
   // Quan hệ
