@@ -197,10 +197,12 @@ export default class TodoService {
       attachments: data.attachments,
     });
 
-    const actorRole = await this.getActorRole(projectId, userId);
-    if (actorRole === "MEMBER") {
-      throw new AppError("Only Admin or Group Leader can create todos.", 403);
-    }
+    // Allow project members to create todos. Higher roles still have full privileges.
+    // Previously members were blocked from creating todos. Now members can create todos,
+    // but other operations (update/delete) still enforce role checks where appropriate.
+    // (Actor role may still be used for notifications or downstream logic.)
+    // We still fetch the actor role to ensure the user belongs to the project.
+    await this.getActorRole(projectId, userId);
 
     // Gửi mail cho assignees mới (trong trường hợp tạo mới tất cả đều là mới)
     this.notifyNewAssignees(newTodo.assignees, [], newTodo).catch(
@@ -296,7 +298,12 @@ export default class TodoService {
 
     const actorRole = await this.getActorRole(todo.projectId, userId);
     if (actorRole === "MEMBER") {
-      throw new AppError("Only Admin or Group Leader can delete todos.", 403);
+      if (!userId) throw new AppError("Unauthorized", 401);
+      // Allow a member to delete a todo only if they are the creator of that todo.
+      if (todo.createdBy?.toString() !== userId.toString()) {
+        throw new AppError("Bạn không có quyền xóa todo này.", 403);
+      }
+      // otherwise allow deletion
     }
 
     await TodoModel.findByIdAndDelete(id);
