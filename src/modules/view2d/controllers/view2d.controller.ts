@@ -8,23 +8,23 @@ import {
   actorFromReq,
   logActivitySafe,
   projectIdToString,
-} from "../../activity/utils/auditActivity.helpers"; 
+} from "../../activity/utils/auditActivity.helpers";
 
 const View2DController = express.Router();
 const view2dService = new View2DService();
 
 View2DController.post(
   "/",
-  authenticate, 
+  authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { 
-      name, 
-      description, 
-      projectId, 
-      fileId, 
-      pageIndex, 
-      scale, 
-      rotation, 
+    const {
+      name,
+      description,
+      projectId,
+      fileId,
+      pageIndex,
+      scale,
+      rotation,
       previewSrc,
       sharedWithUsers,
       viewState,
@@ -38,7 +38,7 @@ View2DController.post(
     }
 
     const userId = (req as any).userId;
-    
+
     if (!userId) {
       throw new AppError("Unauthorized: User ID not found", 401);
     }
@@ -49,15 +49,18 @@ View2DController.post(
       projectId,
       fileId,
       userId,
-      pageIndex: Number(pageIndex),
-      scale: Number(scale),
-      rotation: Number(rotation),
+      // pageIndex,
+      // scale,
+      // rotation,
+      pageIndex: Number.isFinite(Number(pageIndex)) ? Number(pageIndex) : 1,
+      scale: Number.isFinite(Number(scale)) ? Number(scale) : 1,
+      rotation: Number.isFinite(Number(rotation)) ? Number(rotation) : 0,
       previewSrc,
       sharedWith: {
         isPublic: false,
         users: sharedWithUsers,
       },
-      viewState,      
+      viewState,
     });
 
     const actor = actorFromReq(req);
@@ -89,9 +92,9 @@ View2DController.get(
   // authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { fileId } = req.params;
-    
+
     const result = await view2dService.getViewsByFile(fileId);
-    
+
     res.status(200).json(result);
   })
 );
@@ -100,8 +103,27 @@ View2DController.get(
   "/project/:projectId",
   // authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { projectId } = req.params;    
+    const { projectId } = req.params;
     const result = await view2dService.getViewsByProject(projectId);
+    res.status(200).json(result);
+  })
+);
+
+/**
+ * Lấy chi tiết một view by ID
+ */
+View2DController.get(
+  "/:id",
+  // authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const result = await view2dService.getViewById(id);
+
+    if (!result) {
+      throw new AppError("View not found", 404);
+    }
+
     res.status(200).json(result);
   })
 );
@@ -151,7 +173,7 @@ View2DController.delete(
     const { id } = req.params;
 
     const userId = (req as any).userId;
-    
+
     if (!userId) {
       throw new AppError("Unauthorized: User ID not found", 401);
     }
