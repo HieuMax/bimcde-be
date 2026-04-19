@@ -356,7 +356,8 @@ TeamController.post("/getAllGroupByUserId", authenticate, async (req, res) => {
   try {
     const result = await teamService.getGroupByUserId(
       req.userId,
-      req.body.userId
+      req.body.userId,
+      req.body.projectId
     );
     res.status(200).json({
       success: true,

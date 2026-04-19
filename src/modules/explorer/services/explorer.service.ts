@@ -448,10 +448,10 @@ export default class ExplorerService {
             createdAt: v.createdAt,
             uploadedBy: v.uploadedBy
               ? {
-                  _id: (v.uploadedBy as any)._id?.toString?.() || "",
-                  fullName: (v.uploadedBy as any).fullName || "Unknown",
-                  email: (v.uploadedBy as any).email,
-                }
+                _id: (v.uploadedBy as any)._id?.toString?.() || "",
+                fullName: (v.uploadedBy as any).fullName || "Unknown",
+                email: (v.uploadedBy as any).email,
+              }
               : "Unknown",
           })),
         };
@@ -481,11 +481,22 @@ export default class ExplorerService {
       });
     }
 
+    let finalFiles = processedFiles as Array<Record<string, any>>;
+    if (userId) {
+      const wf = await ProjectModel.findById(projectId).select("workflowMode").lean();
+      const mode = parseCdeWorkflowMode(wf?.workflowMode) ?? "NORMAL";
+      if (mode === "ISO_19650") {
+        finalFiles = await cdeAccess.annotateFilesIso(projectId, userId, finalFiles);
+      } else {
+        finalFiles = await cdeAccess.annotateFilesNormal(projectId, userId, finalFiles);
+      }
+    }
+
     return {
       currentFolder,
       ancestors,
       subFolders: subFoldersOut,
-      files: processedFiles,
+      files: finalFiles,
       workflowMode,
       cdeCapabilities,
     };
@@ -766,13 +777,13 @@ export default class ExplorerService {
     const agg = await FolderModel.aggregate(pipeline).allowDiskUse(true);
     const facet = agg[0] as
       | {
-          latestFile?: Array<{
-            doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
-          }>;
-          latestFolder?: Array<{
-            doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
-          }>;
-        }
+        latestFile?: Array<{
+          doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
+        }>;
+        latestFolder?: Array<{
+          doc?: { updatedAt?: Date; lastModifiedBy?: string } | null;
+        }>;
+      }
       | undefined;
 
     if (!facet) {

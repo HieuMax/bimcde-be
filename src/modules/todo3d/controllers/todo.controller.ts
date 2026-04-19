@@ -1,306 +1,306 @@
-import express, { Request, Response } from "express";
-import TodoService from "../services/todo.service";
-import { asyncHandler } from "../../../utils/asyncHandler";
-import { AppError } from "../../../utils/AppError";
-import { authenticate } from "../../../middlewares/authMiddlewares";
-import {
-  actorFromReq,
-  logActivitySafe,
-  projectIdToString,
-} from "../../activity/utils/auditActivity.helpers";
-import Todo3dModel from "../schemas/todo.schema";
+// import express, { Request, Response } from "express";
+// import TodoService from "../services/todo.service";
+// import { asyncHandler } from "../../../utils/asyncHandler";
+// import { AppError } from "../../../utils/AppError";
+// import { authenticate } from "../../../middlewares/authMiddlewares";
+// import {
+//   actorFromReq,
+//   logActivitySafe,
+//   projectIdToString,
+// } from "../../activity/utils/auditActivity.helpers";
+// import Todo3dModel from "../schemas/todo.schema";
 
-const TodoController = express.Router();
-const todoService = new TodoService();
+// const TodoController = express.Router();
+// const todoService = new TodoService();
 
-/**
- * GET /api/todos
- * Query Params: projectId, status, assignee, priority
- * Desc: Get all todos for a specific project with optional filters.
- */
-TodoController.get(
-  "/",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { projectId, status, assignee, priority, topicId } = req.query;
+// /**
+//  * GET /api/todos
+//  * Query Params: projectId, status, assignee, priority
+//  * Desc: Get all todos for a specific project with optional filters.
+//  */
+// TodoController.get(
+//   "/",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { projectId, status, assignee, priority, topicId } = req.query;
 
-    if (!projectId) {
-      throw new AppError("Project ID is required", 400);
-    }
+//     if (!projectId) {
+//       throw new AppError("Project ID is required", 400);
+//     }
 
-    const filters: any = {};
-    if (status) filters.status = status;
-    if (assignee) filters.assignee = assignee as string;
-    if (priority) filters.priority = priority;
-    if (topicId) filters.topicId = topicId as string;
+//     const filters: any = {};
+//     if (status) filters.status = status;
+//     if (assignee) filters.assignee = assignee as string;
+//     if (priority) filters.priority = priority;
+//     if (topicId) filters.topicId = topicId as string;
 
-    const todos = await todoService.getAllTodos(projectId as string, filters);
-    res.json(todos);
-  })
-);
+//     const todos = await todoService.getAllTodos(projectId as string, filters);
+//     res.json(todos);
+//   })
+// );
 
-/**
- * GET /api/todos/:id
- * Desc: Get a todo by ID.
- */
-TodoController.get(
-  "/:id",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
+// /**
+//  * GET /api/todos/:id
+//  * Desc: Get a todo by ID.
+//  */
+// TodoController.get(
+//   "/:id",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { id } = req.params;
 
-    if (!id) {
-      throw new AppError("Todo ID is required", 400);
-    }
+//     if (!id) {
+//       throw new AppError("Todo ID is required", 400);
+//     }
 
-    const todo = await todoService.getTodoById(id);
-    res.json(todo);
-  })
-);
+//     const todo = await todoService.getTodoById(id);
+//     res.json(todo);
+//   })
+// );
 
-/**
- * POST /api/todos
- * Body: { title, description, status, priority, completion, assignees, type, tags, dueDate, projectId }
- * Desc: Create a new todo.
- */
-TodoController.post(
-  "/",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const {
-      title,
-      description,
-      status,
-      priority,
-      completion,
-      assignees,
-      type,
-      tags,
-      dueDate,
-      projectId,
-      topicId,
-      items,
-      viewState,
-      attachments
-    } = req.body;
+// /**
+//  * POST /api/todos
+//  * Body: { title, description, status, priority, completion, assignees, type, tags, dueDate, projectId }
+//  * Desc: Create a new todo.
+//  */
+// TodoController.post(
+//   "/",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const {
+//       title,
+//       description,
+//       status,
+//       priority,
+//       completion,
+//       assignees,
+//       type,
+//       tags,
+//       dueDate,
+//       projectId,
+//       topicId,
+//       items,
+//       viewState,
+//       attachments
+//     } = req.body;
 
-    if (!title || !projectId) {
-      throw new AppError("Title and projectId are required", 400);
-    }
+//     if (!title || !projectId) {
+//       throw new AppError("Title and projectId are required", 400);
+//     }
 
-    const createdBy = req.userId?.toString();
-    if (!createdBy) {
-      throw new AppError("User ID is required", 400);
-    }
+//     const createdBy = req.userId?.toString();
+//     if (!createdBy) {
+//       throw new AppError("User ID is required", 400);
+//     }
 
-    const newTodo = await todoService.createTodo({
-      title,
-      description,
-      status,
-      priority,
-      completion,
-      assignees: Array.isArray(assignees) ? assignees : assignees ? [assignees] : undefined,
-      type,
-      tags: Array.isArray(tags) ? tags : tags ? [tags] : undefined,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      projectId,
-      createdBy,
-      topicId: topicId === undefined ? undefined : topicId,
-      items,
-      viewState,
-      attachments
-    });
+//     const newTodo = await todoService.createTodo({
+//       title,
+//       description,
+//       status,
+//       priority,
+//       completion,
+//       assignees: Array.isArray(assignees) ? assignees : assignees ? [assignees] : undefined,
+//       type,
+//       tags: Array.isArray(tags) ? tags : tags ? [tags] : undefined,
+//       dueDate: dueDate ? new Date(dueDate) : undefined,
+//       projectId,
+//       createdBy,
+//       topicId: topicId === undefined ? undefined : topicId,
+//       items,
+//       viewState,
+//       attachments
+//     });
 
-    const actor = actorFromReq(req);
-    if (actor && newTodo?._id && newTodo.projectId) {
-      await logActivitySafe({
-        projectId: projectIdToString(newTodo.projectId),
-        actor,
-        actionGroup: "TODO",
-        actionType: "CREATE",
-        target: {
-          itemId: String(newTodo._id),
-          itemModel: "Todo",
-          itemName: String(newTodo.title ?? "Todo"),
-        },
-        description: `Created 3D todo "${String(newTodo.title ?? "")}"`,
-      });
-    }
+//     const actor = actorFromReq(req);
+//     if (actor && newTodo?._id && newTodo.projectId) {
+//       await logActivitySafe({
+//         projectId: projectIdToString(newTodo.projectId),
+//         actor,
+//         actionGroup: "TODO",
+//         actionType: "CREATE",
+//         target: {
+//           itemId: String(newTodo._id),
+//           itemModel: "Todo",
+//           itemName: String(newTodo.title ?? "Todo"),
+//         },
+//         description: `Created 3D todo "${String(newTodo.title ?? "")}"`,
+//       });
+//     }
 
-    res.status(201).json(newTodo);
-  })
-);
+//     res.status(201).json(newTodo);
+//   })
+// );
 
-/**
- * PUT /api/todos/:id
- * Body: { title, description, status, priority, completion, assignees, type, tags, dueDate }
- * Desc: Update todo details.
- */
-TodoController.put(
-  "/:id",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const {
-      title,
-      description,
-      status,
-      priority,
-      completion,
-      assignees,
-      type,
-      tags,
-      dueDate,
-      topicId,
-      items,
-      viewState,
-      attachments
-    } = req.body;
+// /**
+//  * PUT /api/todos/:id
+//  * Body: { title, description, status, priority, completion, assignees, type, tags, dueDate }
+//  * Desc: Update todo details.
+//  */
+// TodoController.put(
+//   "/:id",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const {
+//       title,
+//       description,
+//       status,
+//       priority,
+//       completion,
+//       assignees,
+//       type,
+//       tags,
+//       dueDate,
+//       topicId,
+//       items,
+//       viewState,
+//       attachments
+//     } = req.body;
 
-    if (!id) {
-      throw new AppError("Todo ID is required", 400);
-    }
+//     if (!id) {
+//       throw new AppError("Todo ID is required", 400);
+//     }
 
-    const userId = req.userId?.toString();
-    if (!userId) {
-      throw new AppError("User ID is required", 400);
-    }
+//     const userId = req.userId?.toString();
+//     if (!userId) {
+//       throw new AppError("User ID is required", 400);
+//     }
 
-    const updateData: any = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (status !== undefined) updateData.status = status;
-    if (priority !== undefined) updateData.priority = priority;
-    if (completion !== undefined) updateData.completion = completion;
-    if (assignees !== undefined) {
-      updateData.assignees = Array.isArray(assignees) ? assignees : assignees ? [assignees] : [];
-    }
-    if (type !== undefined) updateData.type = type;
-    if (tags !== undefined) {
-      updateData.tags = Array.isArray(tags) ? tags : tags ? [tags] : [];
-    }
-    if (dueDate !== undefined) {
-      updateData.dueDate = dueDate ? new Date(dueDate) : null;
-    }
-    if (items !== undefined) updateData.items = items;
-    if (viewState !== undefined) updateData.viewState = viewState;
-    if (attachments !== undefined) updateData.attachments = attachments;
-    if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "topicId")) {
-      updateData.topicId = topicId === "" ? null : topicId;
-    }
+//     const updateData: any = {};
+//     if (title !== undefined) updateData.title = title;
+//     if (description !== undefined) updateData.description = description;
+//     if (status !== undefined) updateData.status = status;
+//     if (priority !== undefined) updateData.priority = priority;
+//     if (completion !== undefined) updateData.completion = completion;
+//     if (assignees !== undefined) {
+//       updateData.assignees = Array.isArray(assignees) ? assignees : assignees ? [assignees] : [];
+//     }
+//     if (type !== undefined) updateData.type = type;
+//     if (tags !== undefined) {
+//       updateData.tags = Array.isArray(tags) ? tags : tags ? [tags] : [];
+//     }
+//     if (dueDate !== undefined) {
+//       updateData.dueDate = dueDate ? new Date(dueDate) : null;
+//     }
+//     if (items !== undefined) updateData.items = items;
+//     if (viewState !== undefined) updateData.viewState = viewState;
+//     if (attachments !== undefined) updateData.attachments = attachments;
+//     if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "topicId")) {
+//       updateData.topicId = topicId === "" ? null : topicId;
+//     }
 
-    if (Object.keys(updateData).length === 0) {
-      throw new AppError("Nothing to update", 400);
-    }
+//     if (Object.keys(updateData).length === 0) {
+//       throw new AppError("Nothing to update", 400);
+//     }
 
-    const updatedTodo = await todoService.updateTodo(id, updateData, userId);
-    const actor = actorFromReq(req);
-    if (actor && updatedTodo?._id && updatedTodo.projectId) {
-      await logActivitySafe({
-        projectId: projectIdToString(updatedTodo.projectId),
-        actor,
-        actionGroup: "TODO",
-        actionType: "UPDATE",
-        target: {
-          itemId: String(updatedTodo._id),
-          itemModel: "Todo",
-          itemName: String(updatedTodo.title ?? "Todo"),
-        },
-        description: `Updated 3D todo "${String(updatedTodo.title ?? "")}"`,
-      });
-    }
-    res.json(updatedTodo);
-  })
-);
+//     const updatedTodo = await todoService.updateTodo(id, updateData, userId);
+//     const actor = actorFromReq(req);
+//     if (actor && updatedTodo?._id && updatedTodo.projectId) {
+//       await logActivitySafe({
+//         projectId: projectIdToString(updatedTodo.projectId),
+//         actor,
+//         actionGroup: "TODO",
+//         actionType: "UPDATE",
+//         target: {
+//           itemId: String(updatedTodo._id),
+//           itemModel: "Todo",
+//           itemName: String(updatedTodo.title ?? "Todo"),
+//         },
+//         description: `Updated 3D todo "${String(updatedTodo.title ?? "")}"`,
+//       });
+//     }
+//     res.json(updatedTodo);
+//   })
+// );
 
-/**
- * DELETE /api/todos/:id
- * Desc: Delete a todo.
- */
-TodoController.delete(
-  "/:id",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
+// /**
+//  * DELETE /api/todos/:id
+//  * Desc: Delete a todo.
+//  */
+// TodoController.delete(
+//   "/:id",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { id } = req.params;
 
-    if (!id) {
-      throw new AppError("Todo ID is required", 400);
-    }
+//     if (!id) {
+//       throw new AppError("Todo ID is required", 400);
+//     }
 
-    const userId = req.userId?.toString();
-    if (!userId) {
-      throw new AppError("User ID is required", 400);
-    }
+//     const userId = req.userId?.toString();
+//     if (!userId) {
+//       throw new AppError("User ID is required", 400);
+//     }
 
-    const existing = await Todo3dModel.findById(id).lean();
-    await todoService.deleteTodo(id, userId);
-    const actor = actorFromReq(req);
-    if (actor && existing?._id && existing.projectId) {
-      await logActivitySafe({
-        projectId: projectIdToString(existing.projectId),
-        actor,
-        actionGroup: "TODO",
-        actionType: "DELETE",
-        target: {
-          itemId: String(existing._id),
-          itemModel: "Todo",
-          itemName: String((existing as { title?: string }).title ?? "Todo"),
-        },
-        description: "Deleted 3D todo",
-      });
-    }
-    res.json({ message: "Todo deleted successfully" });
-  })
-);
+//     const existing = await Todo3dModel.findById(id).lean();
+//     await todoService.deleteTodo(id, userId);
+//     const actor = actorFromReq(req);
+//     if (actor && existing?._id && existing.projectId) {
+//       await logActivitySafe({
+//         projectId: projectIdToString(existing.projectId),
+//         actor,
+//         actionGroup: "TODO",
+//         actionType: "DELETE",
+//         target: {
+//           itemId: String(existing._id),
+//           itemModel: "Todo",
+//           itemName: String((existing as { title?: string }).title ?? "Todo"),
+//         },
+//         description: "Deleted 3D todo",
+//       });
+//     }
+//     res.json({ message: "Todo deleted successfully" });
+//   })
+// );
 
-/**
- * PATCH /api/todos/:id/status
- * Body: { status }
- * Desc: Update todo status.
- */
-TodoController.patch(
-  "/:id/status",
-  authenticate,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { status } = req.body;
+// /**
+//  * PATCH /api/todos/:id/status
+//  * Body: { status }
+//  * Desc: Update todo status.
+//  */
+// TodoController.patch(
+//   "/:id/status",
+//   authenticate,
+//   asyncHandler(async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const { status } = req.body;
 
-    if (!id) {
-      throw new AppError("Todo ID is required", 400);
-    }
+//     if (!id) {
+//       throw new AppError("Todo ID is required", 400);
+//     }
 
-    if (!status) {
-      throw new AppError("Status is required", 400);
-    }
+//     if (!status) {
+//       throw new AppError("Status is required", 400);
+//     }
 
-    const validStatuses = ["New", "In Progress", "Done", "Closed"];
-    if (!validStatuses.includes(status)) {
-      throw new AppError(`Status must be one of: ${validStatuses.join(", ")}`, 400);
-    }
+//     const validStatuses = ["New", "In Progress", "Done", "Closed"];
+//     if (!validStatuses.includes(status)) {
+//       throw new AppError(`Status must be one of: ${validStatuses.join(", ")}`, 400);
+//     }
 
-    const userId = req.userId?.toString();
-    const updatedTodo = await todoService.updateTodoStatus(
-      id,
-      status,
-      userId,
-    );
-    const actor = actorFromReq(req);
-    if (actor && updatedTodo?._id && updatedTodo.projectId) {
-      await logActivitySafe({
-        projectId: projectIdToString(updatedTodo.projectId),
-        actor,
-        actionGroup: "TODO",
-        actionType: "STATUS_UPDATE",
-        target: {
-          itemId: String(updatedTodo._id),
-          itemModel: "Todo",
-          itemName: String(updatedTodo.title ?? "Todo"),
-        },
-        metaData: { status },
-      });
-    }
-    res.json(updatedTodo);
-  })
-);
+//     const userId = req.userId?.toString();
+//     const updatedTodo = await todoService.updateTodoStatus(
+//       id,
+//       status,
+//       userId,
+//     );
+//     const actor = actorFromReq(req);
+//     if (actor && updatedTodo?._id && updatedTodo.projectId) {
+//       await logActivitySafe({
+//         projectId: projectIdToString(updatedTodo.projectId),
+//         actor,
+//         actionGroup: "TODO",
+//         actionType: "STATUS_UPDATE",
+//         target: {
+//           itemId: String(updatedTodo._id),
+//           itemModel: "Todo",
+//           itemName: String(updatedTodo.title ?? "Todo"),
+//         },
+//         metaData: { status },
+//       });
+//     }
+//     res.json(updatedTodo);
+//   })
+// );
 
-export { TodoController };
+// export { TodoController };

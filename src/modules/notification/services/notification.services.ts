@@ -21,6 +21,9 @@ export default class NotificationService {
       ...data,
     });
 
+    const io = getIO();
+    io.to(`user_${result.userId.toString()}`).emit("new_notification", result);
+
     return result;
   }
 
