@@ -40,7 +40,24 @@ export default class Todo2DService {
     if (data.fileId && data.topicId) {
       await assertTodoTopicMatchesFile(data.topicId, String(data.fileId));
     }
-    return await TodoModel.create(data);
+    const payload = { ...data } as Partial<ITodo>;
+    if (payload.projectId) {
+      const pid = String(payload.projectId);
+      const withCode = await TodoModel.find({
+        projectId: pid,
+        code: { $regex: /^TO-\d+$/ },
+      })
+        .select("code")
+        .lean();
+      let maxN = 0;
+      for (const doc of withCode) {
+        const c = (doc as { code?: string }).code;
+        const m = c ? /^TO-(\d+)$/.exec(c) : null;
+        if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+      }
+      payload.code = `TO-${String(maxN + 1).padStart(4, "0")}`;
+    }
+    return await TodoModel.create(payload);
   }
 
   // Lấy danh sách Todo theo File

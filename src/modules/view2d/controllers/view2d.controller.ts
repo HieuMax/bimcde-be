@@ -133,7 +133,16 @@ View2DController.put(
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { name, description, viewState } = req.body;
+    const {
+      name,
+      description,
+      viewState,
+      sharedWith,
+      previewSrc,
+      pageIndex,
+      scale,
+      rotation,
+    } = req.body;
 
     const userId = (req as any).userId;
     if (!userId) {
@@ -142,7 +151,16 @@ View2DController.put(
 
     const updated = await view2dService.updateView(
       id,
-      { name, description, viewState },
+      {
+        name,
+        description,
+        viewState,
+        sharedWith,
+        previewSrc,
+        pageIndex,
+        scale,
+        rotation,
+      },
       userId
     );
 

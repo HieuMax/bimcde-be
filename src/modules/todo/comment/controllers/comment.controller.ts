@@ -1,7 +1,6 @@
 import express from "express";
 import TodoCommentService from "../services/comment.services";
 import { authenticate } from "../../../../middlewares/authMiddlewares";
-import TodoModel from "../../todo/schemas/todo.schema";
 import commentTodoModel from "../schemas/comment.schemas";
 import {
   actorFromReq,
@@ -35,9 +34,9 @@ TodoCommentController.post("/createComment/:todoId", authenticate, async (req, r
       ...req.body,
     });
     const actor = actorFromReq(req);
-    const todo = await TodoModel.findById(req.params.todoId)
-      .select("projectId title")
-      .lean();
+    const todo = await todoCommentService.resolveTodoMetaForActivity(
+      req.params.todoId,
+    );
     if (actor && todo?.projectId && result?._id) {
       await logActivitySafe({
         projectId: projectIdToString(todo.projectId),
@@ -75,7 +74,9 @@ TodoCommentController.post("/update/:commentId", authenticate, async (req, res) 
     );
     const actor = actorFromReq(req);
     const prev = result?.todoId
-      ? await TodoModel.findById(result.todoId).select("projectId title").lean()
+      ? await todoCommentService.resolveTodoMetaForActivity(
+          String(result.todoId),
+        )
       : null;
     if (actor && prev?.projectId && result?._id) {
       await logActivitySafe({
@@ -111,7 +112,9 @@ TodoCommentController.delete("/delete/:commentId", authenticate, async (req, res
     const result = await todoCommentService.deleteComment(req.params.commentId);
     const actor = actorFromReq(req);
     const todo = before?.todoId
-      ? await TodoModel.findById(before.todoId).select("projectId title").lean()
+      ? await todoCommentService.resolveTodoMetaForActivity(
+          String(before.todoId),
+        )
       : null;
     if (actor && todo?.projectId && before?._id) {
       await logActivitySafe({

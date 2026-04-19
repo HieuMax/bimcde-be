@@ -1,6 +1,8 @@
 import { Document, Types } from "mongoose";
 
 export interface ITodo extends Document {
+  /** Human-readable id, e.g. TO-0001 (per project, server-assigned). */
+  code?: string;
   title: string;
   description?: string;
   
@@ -13,6 +15,15 @@ export interface ITodo extends Document {
   assignee?: string; // Backward compatibility: single assignee
   assignees?: string[]; // NEW: Multiple assignees
   tags: string[];
+
+  /** Đính kèm file (cùng dạng với todo 3D dashboard) */
+  attachments?: {
+    name: string;
+    url: string;
+    mimeType?: string;
+    size?: number;
+    fileId?: string;
+  }[];
 
   // Quan hệ
   projectId: string;
