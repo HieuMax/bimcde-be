@@ -153,6 +153,11 @@ export default class View2DService {
 
     // Transform sharedWith data if provided
     let updateData = { ...data };
+    Object.keys(updateData).forEach((key) => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
     if (data.sharedWith && data.sharedWith.users) {
       const sharedWith = data.sharedWith.users.map((user: any) => {
         if (typeof user === "string") {

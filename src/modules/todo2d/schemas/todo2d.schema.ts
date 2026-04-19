@@ -3,6 +3,7 @@ import { ITodo } from "../interfaces/todo2d.interface";
 
 const Todo2DSchema = new Schema<ITodo>(
   {
+    code: { type: String },
     title: { type: String, required: true },
     description: { type: String },
     
@@ -28,6 +29,19 @@ const Todo2DSchema = new Schema<ITodo>(
     assignee: { type: String }, // Backward compatibility: single assignee
     assignees: [{ type: String }], // NEW: Multiple assignees
     tags: [{ type: String }],
+
+    attachments: {
+      type: [
+        {
+          name: { type: String, required: true },
+          url: { type: String, required: true },
+          mimeType: { type: String },
+          size: { type: Number },
+          fileId: { type: String },
+        },
+      ],
+      default: [],
+    },
     
     // --- LIÊN KẾT ---
     projectId: { type: String, required: true }, 
