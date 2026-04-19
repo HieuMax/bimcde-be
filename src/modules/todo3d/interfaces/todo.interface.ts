@@ -40,15 +40,15 @@ export interface ITodo extends Document {
   priority: "high" | "normal" | "low";
   completion: number; // 0-100
   type:
-    | "undefined"
-    | "comment"
-    | "issue"
-    | "request"
-    | "fault"
-    | "inquiry"
-    | "solution"
-    | "remark"
-    | "clash";
+  | "undefined"
+  | "comment"
+  | "issue"
+  | "request"
+  | "fault"
+  | "inquiry"
+  | "solution"
+  | "remark"
+  | "clash";
   dueDate?: Date;
   projectId: mongoose.Types.ObjectId;
   /** Parent TopicItem (optional; same collection as BCF topics). */

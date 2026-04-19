@@ -235,8 +235,11 @@ export default class CdeAccessService {
     projectId: string,
     userId: Types.ObjectId,
     resourceType: "folder" | "file",
-    resourceId: string
+    resourceId: string,
+    isAdmin?: boolean
   ): Promise<ItemAccessLevel> {
+    if (isAdmin) return "FULL";
+
     const pid = new Types.ObjectId(projectId);
     const rid = new Types.ObjectId(resourceId);
 
@@ -304,11 +307,15 @@ export default class CdeAccessService {
     const mode = parseCdeWorkflowMode(proj?.workflowMode) ?? "NORMAL";
 
     if (mode === "NORMAL") {
+      const pm = await projectMemberSchema.findOne({ projectId, userId }).lean();
+      const isAdmin = pm ? isProjectAdminRole(pm.role) : false;
+
       const level = await this.resolveNormalItemAccess(
         projectId,
         userId,
         "folder",
-        folderId
+        folderId,
+        isAdmin
       );
       if (level === "NO_ACCESS") {
         throw new AppError("No access to this folder", 403);
@@ -345,11 +352,15 @@ export default class CdeAccessService {
     const mode = parseCdeWorkflowMode(proj?.workflowMode) ?? "NORMAL";
 
     if (mode === "NORMAL") {
+      const pm = await projectMemberSchema.findOne({ projectId, userId }).lean();
+      const isAdmin = pm ? isProjectAdminRole(pm.role) : false;
+
       const level = await this.resolveNormalItemAccess(
         projectId,
         userId,
         "file",
-        fileId
+        fileId,
+        isAdmin
       );
       if (level === "NO_ACCESS") {
         throw new AppError("No access to this file", 403);
@@ -365,6 +376,55 @@ export default class CdeAccessService {
     if (!ok) {
       throw new AppError("You do not have permission for this file", 403);
     }
+  }
+
+  async annotateFilesIso(
+    projectId: string,
+    userId: Types.ObjectId,
+    files: Array<Record<string, any>>
+  ): Promise<Array<Record<string, any>>> {
+    const ctx = await this.loadIsoContext(projectId, userId);
+    const out: Array<Record<string, any>> = [];
+    for (const f of files) {
+      // Ép kiểu lại để checkIsoFileAccess dùng được toán tử .equals() của ObjectId
+      const mockFile = {
+        folderId: f.folderId,
+        createdBy: f.createdBy ? new Types.ObjectId(f.createdBy as string) : undefined,
+        versions: (f.versions as any[])?.map((v: any) => ({
+          uploadedBy: v.uploadedBy?._id ? new Types.ObjectId(v.uploadedBy._id) : undefined
+        }))
+      };
+
+      const allowed = await this.checkIsoFileAccess(projectId, userId, mockFile, "read", ctx);
+      out.push({ ...f, cdeAccessible: allowed });
+    }
+    return out;
+  }
+
+  async annotateFilesNormal(
+    projectId: string,
+    userId: Types.ObjectId,
+    files: Array<Record<string, any>>
+  ): Promise<Array<Record<string, any>>> {
+    const pm = await projectMemberSchema.findOne({ projectId, userId }).lean();
+    const isAdmin = pm ? isProjectAdminRole(pm.role) : false;
+
+    const out: Array<Record<string, any>> = [];
+    for (const f of files) {
+      const id = f._id.toString();
+      const level = await this.resolveNormalItemAccess(
+        projectId,
+        userId,
+        "file",
+        id,
+        isAdmin // Đã truyền isAdmin bypass lúc trước
+      );
+      out.push({
+        ...f,
+        cdeAccessible: level !== "NO_ACCESS",
+      });
+    }
+    return out;
   }
 
   private async checkIsoFileAccess(
@@ -522,6 +582,9 @@ export default class CdeAccessService {
     userId: Types.ObjectId,
     folders: Array<Record<string, unknown>>
   ): Promise<Array<Record<string, unknown>>> {
+    const pm = await projectMemberSchema.findOne({ projectId, userId }).lean();
+    const isAdmin = pm ? isProjectAdminRole(pm.role) : false;
+
     const out: Array<Record<string, unknown>> = [];
     for (const f of folders) {
       const id = (f._id as Types.ObjectId).toString();
@@ -529,7 +592,8 @@ export default class CdeAccessService {
         projectId,
         userId,
         "folder",
-        id
+        id,
+        isAdmin
       );
       out.push({
         ...f,
