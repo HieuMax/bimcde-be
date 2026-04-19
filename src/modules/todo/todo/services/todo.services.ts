@@ -227,32 +227,20 @@ export default class TodoService {
       throw new AppError("Todo not found", 404);
     }
 
-    // Optional: Check if user has permission to update (e.g., creator or assignee)
-    // For now, we'll allow updates by any authenticated user
-
     const actorRole = await this.getActorRole(todo.projectId, userId);
 
     if (actorRole === "MEMBER") {
       if (!userId) throw new AppError("Unauthorized", 401);
-      const assignedToMember = (todo.assignees || []).some(
+
+      const isCreator = todo.createdBy?.toString() === userId.toString();
+
+      const isAssignee = (todo.assignees || []).some(
         (a) => a.assigneeId?.toString() === userId.toString(),
       );
-      if (!assignedToMember) {
-        throw new AppError(
-          "Members can only update todos assigned to them.",
-          403,
-        );
-      }
 
-      const allowedKeys = new Set(["status", "completion", "modifiedOn"]);
-      const updateKeys = Object.keys(data || {});
-      const hasForbidden = updateKeys.some((k) => !allowedKeys.has(k));
-      if (hasForbidden) {
-        throw new AppError("Members can only update status/completion.", 403);
-      }
-      if (data.status && data.status !== "done") {
+      if (!isCreator && !isAssignee) {
         throw new AppError(
-          "Members can only mark assigned todos as done.",
+          "Bạn không có quyền chỉnh sửa. Yêu cầu là người tạo hoặc được giao công việc này.",
           403,
         );
       }
