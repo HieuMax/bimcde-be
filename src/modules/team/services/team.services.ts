@@ -585,7 +585,8 @@ export default class TeamService {
 
   async getGroupByUserId(
     userAccess: Types.ObjectId | undefined,
-    userId: string
+    userId: string,
+    projectId: string
   ) {
     if (!userAccess) {
       throw new Error("User không hợp lệ.");
@@ -597,6 +598,7 @@ export default class TeamService {
       .populate("groupId");
     const result = groupModel.find({
       _id: { $in: groupIds.map((g) => g.groupId) },
+      projectId: projectId
     });
     return result;
   }

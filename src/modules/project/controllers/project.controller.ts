@@ -12,7 +12,10 @@ import {
   logActivitySafe,
   projectIdToString,
 } from "../../activity/utils/auditActivity.helpers";
+import NotificationService from "../../notification/services/notification.services";
+
 const ProjectController = express.Router();
+const notificationService = new NotificationService();
 
 const projectService = new ProjectService();
 ProjectController.post("/createProject", authenticate, async (req, res) => {
@@ -251,6 +254,17 @@ ProjectController.post(
         req.params.projectId,
         req.body,
       );
+
+      if (result && result.userId) {
+        const projectDoc = await projectSchema.findById(req.params.projectId).lean();
+        await notificationService.createNotification({
+          userId: result.userId,
+          title: "Project Invitation",
+          content: `You have been added to the project ${projectDoc?.name || ""}.`,
+          isRead: false,
+          url: `/projects/${req.params.projectId}`,
+        } as any);
+      }
 
       const actor = actorFromReq(req);
       if (actor && result?.userId) {

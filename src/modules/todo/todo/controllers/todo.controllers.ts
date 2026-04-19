@@ -261,7 +261,7 @@ TodoController.delete(
       throw new AppError("User ID is required", 400);
     }
 
-    const existing = await todoModel.findById(req.params.todoId).lean();
+    const existing = await todoModel.findById(id).lean();
     await todoService.deleteTodo(id, userId);
     const actor = actorFromReq(req);
     if (actor && existing?._id) {

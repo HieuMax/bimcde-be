@@ -8,10 +8,12 @@ import {
   logActivitySafe,
   projectIdToString,
 } from "../../activity/utils/auditActivity.helpers";
+import NotificationService from "../../notification/services/notification.services";
 
 const TeamController = express.Router();
 
 const teamService = new TeamService();
+const notificationService = new NotificationService();
 
 TeamController.get(
   "/getMemberProject/:projectId",
@@ -173,6 +175,22 @@ TeamController.post(
           description: `Added ${n} member(s) to group`,
           metaData: { addedCount: n },
         });
+        // create in-app notifications for each added user
+        try {
+          const added = Array.isArray(result) ? result : [];
+          for (const it of added) {
+            const targetUserId = it.userId?.toString ? it.userId.toString() : String(it.userId);
+            await notificationService.createNotification({
+              userId: targetUserId as any,
+              title: `You were added to group ${group.name ?? ""}`,
+              content: `You have been added to group ${group.name ?? ""} in project ${projectIdToString(group.projectId)} by ${actor.fullName ?? actor.email ?? "a user"}`,
+              isRead: false,
+              url: `/projects/${projectIdToString(group.projectId)}/data?groupId=${group._id}`,
+            } as any);
+          }
+        } catch (err) {
+          console.warn("Notification creation failed for addPeopleToGroup:", err);
+        }
       }
       res.status(200).json({
         success: true,
@@ -338,7 +356,8 @@ TeamController.post("/getAllGroupByUserId", authenticate, async (req, res) => {
   try {
     const result = await teamService.getGroupByUserId(
       req.userId,
-      req.body.userId
+      req.body.userId,
+      req.body.projectId
     );
     res.status(200).json({
       success: true,
@@ -384,6 +403,18 @@ TeamController.post(
             description: `Linked user to ${result.length} group(s)`,
             metaData: { targetUserId: req.params.userId, groupIds: req.body?.groupIds },
           });
+          // notify the user that they were added to groups
+          try {
+            await notificationService.createNotification({
+              userId: req.params.userId as any,
+              title: `You were added to ${result.length} group(s)`,
+              content: `You have been added to ${result.length} group(s) in project ${projectIdToString(g.projectId)} by ${actor.fullName ?? actor.email ?? "a user"}`,
+              isRead: false,
+              url: `/projects/${projectIdToString(g.projectId)}`,
+            } as any);
+          } catch (err) {
+            console.warn("Notification creation failed for addGroupToPeople:", err);
+          }
         }
       }
       res.status(200).json({
