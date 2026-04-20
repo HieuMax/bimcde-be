@@ -170,9 +170,25 @@ export default class ProjectService {
         projectId: projectDoc._id,
       });
 
+      const projectGroups = await groupModel
+        .find({ projectId: projectDoc._id })
+        .select("_id")
+        .lean();
+      const groupIds = projectGroups.map((g) => g._id);
+      const isGroupLeaderInProject =
+        groupIds.length > 0
+          ? !!(await groupMemberModel.findOne({
+              userId,
+              groupId: { $in: groupIds },
+              role: "GROUP_LEADER",
+            }).lean())
+          : false;
+
       const project = {
         ...projectDoc.toObject(),
         userCount,
+        currentMemberRole: (member.role || "user").toLowerCase(),
+        isGroupLeaderInProject,
       };
       return project;
     } catch (error) {
