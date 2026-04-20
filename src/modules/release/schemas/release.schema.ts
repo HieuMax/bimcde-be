@@ -35,14 +35,12 @@ const ReleaseSchema = new Schema<IRelease>(
 
     status: {
       type: String,
-      enum: ["DRAFT", "SENT"],
+      enum: ["DRAFT", "RELEASED"],
       default: "DRAFT",
       index: true,
     },
 
     items: [ReleaseItemSchema],
-
-    recipients: [{ type: Schema.Types.ObjectId }],
 
     createdBy: { type: Schema.Types.ObjectId, ref: "Account", required: true },
     sentAt: { type: Date },

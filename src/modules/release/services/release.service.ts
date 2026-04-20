@@ -8,7 +8,6 @@ import { Response } from "express";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client } from "../../../lib/r2.lib";
 import { env } from "../../../env";
-import UserModel from "../../account/schemas/account.schema";
 import GroupModel from "../../team/schemas/group.schema";
 import GroupMemberModel from "../../team/schemas/group-member.schema";
 import {
@@ -17,8 +16,95 @@ import {
   sanitizeReleaseName,
   sanitizeReleaseNote,
 } from "../utils/releaseInput.validation";
+import projectSchema from "../../project/schemas/project.schema";
+import projectMemberSchema from "../../project/schemas/project-member.schema";
+import { parseCdeWorkflowMode } from "../../../constants/cde-workflow";
+import { migrateReleaseStatuses } from "../migrations/migrateReleaseStatuses";
+import { unsetReleaseRecipientsField } from "../migrations/unsetReleaseRecipients";
 
 export default class ReleaseService {
+  private static legacyMigrationPromise: Promise<void> | null = null;
+
+  private async ensureLegacyReleaseDataMigrated(): Promise<void> {
+    if (!ReleaseService.legacyMigrationPromise) {
+      ReleaseService.legacyMigrationPromise = (async () => {
+        await migrateReleaseStatuses();
+        await unsetReleaseRecipientsField();
+      })().catch((error) => {
+        ReleaseService.legacyMigrationPromise = null;
+        throw error;
+      });
+    }
+    await ReleaseService.legacyMigrationPromise;
+  }
+
+  private normalizeMemberRole(role: unknown): "admin" | "user" {
+    const r = (role ?? "user").toString().toLowerCase();
+    return r === "admin" ? "admin" : "user";
+  }
+
+  private async assertProjectMember(
+    userId: string,
+    projectId: Types.ObjectId | string,
+  ) {
+    await this.ensureLegacyReleaseDataMigrated();
+    const m = await projectMemberSchema.findOne({
+      userId: new Types.ObjectId(userId),
+      projectId: new Types.ObjectId(projectId.toString()),
+    });
+    if (!m) {
+      throw new AppError("You don't have access to this project", 403);
+    }
+    return { role: this.normalizeMemberRole(m.role) };
+  }
+
+  private async isUserGroupLeaderInProject(
+    userId: string,
+    projectId: Types.ObjectId,
+  ): Promise<boolean> {
+    const groups = await GroupModel.find({ projectId }).select("_id").lean();
+    const gids = groups.map((g) => g._id);
+    if (gids.length === 0) return false;
+    const row = await GroupMemberModel.findOne({
+      userId: new Types.ObjectId(userId),
+      groupId: { $in: gids },
+      role: "GROUP_LEADER",
+    }).lean();
+    return !!row;
+  }
+
+  private async assertCanCreateRelease(userId: string, projectId: Types.ObjectId) {
+    const member = await this.assertProjectMember(userId, projectId);
+    const project = await projectSchema.findById(projectId).lean();
+    if (!project) throw new AppError("Project not found", 404);
+    const mode = parseCdeWorkflowMode(project.workflowMode as any) ?? "NORMAL";
+    if (mode === "ISO_19650") {
+      const isLeader = await this.isUserGroupLeaderInProject(userId, projectId);
+      if (member.role !== "admin" && !isLeader) {
+        throw new AppError(
+          "Only project administrators and group leaders can create releases in ISO projects.",
+          403,
+        );
+      }
+    }
+    return member;
+  }
+
+  private canEditRelease(
+    member: { role: "admin" | "user" },
+    release: { createdBy: Types.ObjectId | { toString(): string } },
+    userId: string,
+  ): boolean {
+    if (member.role === "admin") return true;
+    const created = release.createdBy?.toString?.() ?? String(release.createdBy);
+    return created === userId;
+  }
+
+  private assertDraftForMutation(release: { status: string }) {
+    if (release.status !== "DRAFT") {
+      throw new AppError("This action is only allowed while the release is a draft.", 400);
+    }
+  }
   // 1. Tạo Release (Mặc định là DRAFT)
   async createRelease(
     data: CreateReleaseDTO,
@@ -30,6 +116,7 @@ export default class ReleaseService {
     const safeDueDate = parseAndAssertFutureDueDate(data.dueDate);
 
     const projectObjId = new Types.ObjectId(data.projectId);
+    await this.assertCanCreateRelease(userId, projectObjId);
 
     // Xử lý danh sách items
     const processedItems = [];
@@ -87,7 +174,6 @@ export default class ReleaseService {
       status: "DRAFT",
       items: processedItems,
       dueDate: safeDueDate,
-      recipients: data.recipients?.map((id) => new Types.ObjectId(id)) || [],
       createdBy: new Types.ObjectId(userId),
     });
 
@@ -100,12 +186,16 @@ export default class ReleaseService {
     filters: {
       status?: string;
       userIds?: string;
-      groupIds?: string;
       dueStartDate?: string;
       dueEndDate?: string;
     },
     currentUser?: any,
   ) {
+    if (!currentUser?._id) {
+      throw new AppError("Unauthorized", 401);
+    }
+    await this.assertProjectMember(currentUser._id.toString(), projectId);
+
     const query: any = { projectId: new Types.ObjectId(projectId) };
 
     // 1. Filter Status
@@ -121,120 +211,33 @@ export default class ReleaseService {
       if (filters.dueEndDate) query.dueDate.$lte = new Date(filters.dueEndDate);
     }
 
-    // --- LOGIC FILTER USER & GROUP (KẾT HỢP AND) ---
-    // Nếu chọn cả User và Group, ta dùng $and để lọc giao nhau (hoặc tùy nghiệp vụ, thường là lọc thêm)
-
     const conditions: any[] = [];
 
-    // [NEW] Permission Check: Nếu không phải Admin, chỉ load Release liên quan
-    if (currentUser && currentUser.role !== "admin") {
-      const userGroups = await GroupMemberModel.find({
-        userId: currentUser._id,
-      }).select("groupId");
-      const userGroupIds = userGroups.map((g) => g.groupId);
-
-      conditions.push({
-        $or: [
-          { createdBy: new Types.ObjectId(currentUser._id) },
-          { recipients: new Types.ObjectId(currentUser._id) },
-          { recipients: { $in: userGroupIds } },
-        ],
-      });
-    }
-
-    // [UPDATE] Logic User: Tìm trong CreatedBy HOẶC Recipients
     if (filters.userIds) {
       const userObjIds = filters.userIds
         .split(",")
         .map((id) => new Types.ObjectId(id.trim()));
-      conditions.push({
-        $or: [
-          { createdBy: { $in: userObjIds } }, // Người tạo là User này
-          { recipients: { $in: userObjIds } }, // HOẶC User này là người nhận trực tiếp
-        ],
-      });
+      conditions.push({ createdBy: { $in: userObjIds } });
     }
 
-    // [NEW] Logic Group: Tìm trong Recipients (Group ID)
-    if (filters.groupIds) {
-      const groupObjIds = filters.groupIds
-        .split(",")
-        .map((id) => new Types.ObjectId(id.trim()));
-      conditions.push({
-        recipients: { $in: groupObjIds }, // Release gửi cho Group này
-      });
-    }
-
-    // Nếu có điều kiện user/group thì merge vào query chính bằng $and
     if (conditions.length > 0) {
       query.$and = conditions;
     }
 
-    // Query DB
-    const releases = await ReleaseModel.find(query)
+    return await ReleaseModel.find(query)
       .populate("createdBy", "fullName email")
       .sort({ createdAt: -1 })
       .lean();
-
-    // Populate recipients thủ công (như đã làm ở các bước trước)
-    const populatedReleases = await Promise.all(
-      releases.map(async (release) => {
-        const recipients = await this.populateRecipients(
-          release.recipients || [],
-        );
-        return { ...release, recipients };
-      }),
-    );
-
-    return populatedReleases;
   }
 
   // 3. Lấy chi tiết Release
-  async getReleaseById(id: string) {
+  async getReleaseById(id: string, viewerUserId: string) {
     const release = await ReleaseModel.findById(id).lean();
     if (!release) throw new AppError("Release not found", 404);
 
-    // Populate thủ công recipients
-    const recipientDetails = await this.populateRecipients(release.recipients);
+    await this.assertProjectMember(viewerUserId, release.projectId);
 
-    return { ...release, recipients: recipientDetails };
-  }
-  private async populateRecipients(ids: any[]) {
-    if (!ids || ids.length === 0) return [];
-
-    const uniqueIds = Array.from(new Set(ids.map((id) => id.toString())));
-
-    // 1. Tìm User
-    const users = await UserModel.find({ _id: { $in: uniqueIds } })
-      .select("_id fullName email")
-      .lean();
-
-    // 2. Tìm Group
-    const groups = await GroupModel.find({ _id: { $in: uniqueIds } })
-      .select("_id name")
-      .lean();
-
-    const userMap = new Map(
-      users.map((u) => [u._id.toString(), { ...u, type: "USER" }]),
-    );
-    // Map Group name thành fullName để Frontend dễ hiển thị chung
-    const groupMap = new Map(
-      groups.map((g) => [
-        g._id.toString(),
-        { ...g, fullName: g.name, type: "GROUP" },
-      ]),
-    );
-
-    const result = [];
-    for (const id of ids) {
-      const idStr = id.toString();
-      if (userMap.has(idStr)) {
-        result.push(userMap.get(idStr));
-      } else if (groupMap.has(idStr)) {
-        result.push(groupMap.get(idStr));
-      }
-    }
-    return result;
+    return release;
   }
 
   // 4. Update Release (Chỉ cho phép khi còn là DRAFT)
@@ -246,19 +249,18 @@ export default class ReleaseService {
     const release = await ReleaseModel.findById(id);
     if (!release) throw new AppError("Release not found", 404);
 
-    if (
-      currentUser.role !== "admin" &&
-      release.createdBy.toString() !== currentUser._id.toString()
-    ) {
+    const member = await this.assertProjectMember(
+      currentUser._id.toString(),
+      release.projectId,
+    );
+    if (!this.canEditRelease(member, release, currentUser._id.toString())) {
       throw new AppError(
-        "Permission denied. Only the creator or admin can update this release.",
+        "Permission denied. Only the creator or a project administrator can update this release.",
         403,
       );
     }
 
-    if (release.status === "SENT") {
-      throw new AppError("Cannot update a SENT release", 400);
-    }
+    this.assertDraftForMutation(release);
 
     // Map các trường cơ bản (sanitize giống create)
     if (updateData.name !== undefined && updateData.name !== null) {
@@ -271,12 +273,6 @@ export default class ReleaseService {
     }
     if (updateData.dueDate !== undefined && updateData.dueDate !== null) {
       release.dueDate = parseAndAssertFutureDueDate(updateData.dueDate);
-    }
-
-    if (updateData.recipients) {
-      release.recipients = updateData.recipients.map(
-        (r) => new Types.ObjectId(r),
-      );
     }
 
     // [FIX] Xử lý cập nhật Items (Thêm/Xóa file)
@@ -296,18 +292,18 @@ export default class ReleaseService {
     const release = await ReleaseModel.findById(id);
     if (!release) throw new AppError("Release not found", 404);
 
-    if (
-      currentUser.role !== "admin" &&
-      release.createdBy.toString() !== currentUser._id.toString()
-    ) {
+    const member = await this.assertProjectMember(
+      currentUser._id.toString(),
+      release.projectId,
+    );
+    if (!this.canEditRelease(member, release, currentUser._id.toString())) {
       throw new AppError(
-        "Permission denied. Only the creator or admin can delete this release.",
+        "Permission denied. Only the creator or a project administrator can delete this release.",
         403,
       );
     }
 
-    // Chỉ cho phép xóa khi còn là DRAFT hoặc nếu là Admin (tùy logic)
-    // if (release.status === "SENT") throw new AppError("Cannot delete a SENT release", 400);
+    this.assertDraftForMutation(release);
 
     await ReleaseModel.deleteOne({ _id: id });
     return true;
@@ -322,19 +318,18 @@ export default class ReleaseService {
     const release = await ReleaseModel.findById(releaseId);
     if (!release) throw new AppError("Release not found", 404);
 
-    if (
-      currentUser.role !== "admin" &&
-      release.createdBy.toString() !== currentUser._id.toString()
-    ) {
+    const member = await this.assertProjectMember(
+      currentUser._id.toString(),
+      release.projectId,
+    );
+    if (!this.canEditRelease(member, release, currentUser._id.toString())) {
       throw new AppError(
-        "Permission denied. Only the creator or admin can modify this release.",
+        "Permission denied. Only the creator or a project administrator can modify this release.",
         403,
       );
     }
 
-    if (release.status === "SENT") {
-      throw new AppError("Cannot modify a SENT release", 400);
-    }
+    this.assertDraftForMutation(release);
 
     // Filter out the item
     // Note: item.fileId is an ObjectId
@@ -359,19 +354,18 @@ export default class ReleaseService {
     const release = await ReleaseModel.findById(releaseId);
     if (!release) throw new AppError("Release not found", 404);
 
-    if (
-      currentUser.role !== "admin" &&
-      release.createdBy.toString() !== currentUser._id.toString()
-    ) {
+    const member = await this.assertProjectMember(
+      currentUser._id.toString(),
+      release.projectId,
+    );
+    if (!this.canEditRelease(member, release, currentUser._id.toString())) {
       throw new AppError(
-        "Permission denied. Only the creator or admin can modify this release.",
+        "Permission denied. Only the creator or a project administrator can modify this release.",
         403,
       );
     }
 
-    if (release.status === "SENT") {
-      throw new AppError("Cannot modify a SENT release", 400);
-    }
+    this.assertDraftForMutation(release);
 
     const initialLength = release.items.length;
     // Filter out items that match any of the provided fileIds
@@ -386,75 +380,25 @@ export default class ReleaseService {
     return await release.save();
   }
 
-  // 5. Gửi Release (Chuyển trạng thái sang SENT)
-  async sendRelease(id: string, currentUser: any) {
-    // 1. Lấy Release
+  /** Draft → Released (view-only thereafter). */
+  async finalizeRelease(id: string, currentUser: any) {
     const release = await ReleaseModel.findById(id);
     if (!release) throw new AppError("Release not found", 404);
 
-    if (
-      currentUser.role !== "admin" &&
-      release.createdBy.toString() !== currentUser._id.toString()
-    ) {
+    const member = await this.assertProjectMember(
+      currentUser._id.toString(),
+      release.projectId,
+    );
+    if (!this.canEditRelease(member, release, currentUser._id.toString())) {
       throw new AppError(
-        "Permission denied. Only the creator or admin can send this release.",
+        "Permission denied. Only the creator or a project administrator can publish this release.",
         403,
       );
     }
 
-    if (release.status === "SENT")
-      throw new AppError("Release already sent", 400);
+    this.assertDraftForMutation(release);
 
-    const rawRecipientIds = release.recipients.map((id) => id.toString());
-
-    if (rawRecipientIds.length === 0) {
-      throw new AppError("No recipients to send", 400);
-    }
-
-    // 2. Phân loại: Tìm xem trong list ID đó, cái nào là Group
-    const groupsFound = await GroupModel.find({
-      _id: { $in: rawRecipientIds },
-    }).select("_id");
-
-    const groupIds = groupsFound.map((g) => g._id.toString());
-
-    // Những ID không nằm trong bảng Group thì ta coi là User ID trực tiếp
-    const directUserIds = rawRecipientIds.filter(
-      (id) => !groupIds.includes(id),
-    );
-
-    // 3. Lấy thành viên của các Group
-    let groupMemberUserIds: string[] = [];
-    if (groupIds.length > 0) {
-      const members = await GroupMemberModel.find({
-        groupId: { $in: groupIds },
-      }).select("userId");
-      groupMemberUserIds = members.map((m) => m.userId.toString());
-    }
-
-    // 4. Gộp và Deduplicate (Loại bỏ trùng lặp)
-    // Set sẽ tự động loại bỏ các ID trùng nhau
-    const uniqueUserIds = new Set([...directUserIds, ...groupMemberUserIds]);
-    const finalRecipientList = Array.from(uniqueUserIds);
-
-    // 5. Lấy thông tin email của các User này để gửi
-    const usersToSend = await UserModel.find({
-      _id: { $in: finalRecipientList },
-    }).select("email fullName");
-
-    // 6. Gửi Email (Ví dụ)
-    // Bạn có thể dùng Promise.all để gửi song song hoặc dùng Queue
-    const emailPromises = usersToSend.map((user) => {
-      // Gọi hàm send email của bạn ở đây
-      // Ví dụ: return sendEmail(user.email, "New Release", `Hello ${user.fullName}...`);
-      console.log(`Sending release to: ${user.email} (User ID: ${user._id})`);
-      return Promise.resolve(); // Mock
-    });
-
-    await Promise.all(emailPromises);
-
-    // 7. Cập nhật trạng thái Release
-    release.status = "SENT";
+    release.status = "RELEASED";
     release.sentAt = new Date();
     await release.save();
 
@@ -462,9 +406,11 @@ export default class ReleaseService {
   }
 
   // 6. Download Release (Zipping đúng version file)
-  async downloadRelease(id: string, res: Response) {
+  async downloadRelease(id: string, res: Response, viewerUserId: string) {
     const release = await ReleaseModel.findById(id);
     if (!release) throw new AppError("Release not found", 404);
+
+    await this.assertProjectMember(viewerUserId, release.projectId);
 
     // Lấy thông tin các file gốc để lấy StorageKey
     const fileIds = release.items.map((i) => i.fileId);

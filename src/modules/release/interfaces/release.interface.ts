@@ -18,16 +18,14 @@ export interface IRelease extends Document {
   name: string;
   description?: string;
 
-  status: "DRAFT" | "SENT";
+  status: "DRAFT" | "RELEASED";
 
   // Danh sách file trong gói này
   items: IReleaseItem[];
 
-  // Người nhận (User trong hệ thống)
-  recipients: Types.ObjectId[];
-
   createdBy: Types.ObjectId;
-  sentAt?: Date; // Thời điểm chuyển sang SENT
+  /** Set when status becomes RELEASED (kept for backward compatibility with existing data). */
+  sentAt?: Date;
   dueDate?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +37,5 @@ export interface CreateReleaseDTO {
   name: string;
   description?: string;
   items: { fileId: string; version?: number }[]; // Nếu không truyền version, mặc định lấy mới nhất
-  recipients?: string[];
   dueDate?: Date;
 }

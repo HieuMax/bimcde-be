@@ -13,17 +13,17 @@ ReleaseController.get(
   "/",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const { projectId, status, userIds, groupIds, dueStartDate, dueEndDate } =
-      req.query;
+    const { projectId, status, userIds, dueStartDate, dueEndDate } = req.query;
     if (!projectId) throw new AppError("Project ID is required", 400);
 
     const user = (req as any).user;
+    const normalizedStatus =
+      status === "SENT" ? "RELEASED" : (status as string | undefined);
     const releases = await releaseService.getReleases(
       projectId as string,
       {
-        status: status as string,
+        status: normalizedStatus,
         userIds: userIds as string,
-        groupIds: groupIds as string,
         dueStartDate: dueStartDate as string,
         dueEndDate: dueEndDate as string,
       },
@@ -38,7 +38,11 @@ ReleaseController.get(
   "/:id",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    const release = await releaseService.getReleaseById(req.params.id);
+    const user = (req as any).user;
+    const release = await releaseService.getReleaseById(
+      req.params.id,
+      user._id.toString(),
+    );
     res.json(release);
   }),
 );
@@ -55,7 +59,7 @@ ReleaseController.post(
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const user = (req as any).user;
-    // req.body cần: { projectId, name, items: [{fileId, version}], recipients }
+    // req.body: { projectId, name, items: [{fileId, version}], dueDate, description? }
     const newRelease = await releaseService.createRelease(
       req.body,
       user._id.toString(),
@@ -100,19 +104,19 @@ ReleaseController.put(
   }),
 );
 
-// POST /api/releases/:id/send (Official Release)
+// POST /api/releases/:id/release (Draft → Released)
 ReleaseController.post(
-  "/:id/send",
+  "/:id/release",
   authenticate,
-  auditLog("RELEASE", "SEND", (req, resBody) => ({
+  auditLog("RELEASE", "RELEASE", (req, resBody) => ({
     itemId: req.params.id,
-    itemName: resBody.name || "Release Sent",
+    itemName: resBody.name || "Release published",
     itemModel: "Release",
   })),
   asyncHandler(async (req: Request, res: Response) => {
     const user = (req as any).user;
-    const sentRelease = await releaseService.sendRelease(req.params.id, user);
-    res.json(sentRelease);
+    const finalized = await releaseService.finalizeRelease(req.params.id, user);
+    res.json(finalized);
   }),
 );
 
@@ -121,7 +125,12 @@ ReleaseController.get(
   "/:id/download",
   authenticate,
   asyncHandler(async (req: Request, res: Response) => {
-    await releaseService.downloadRelease(req.params.id, res);
+    const user = (req as any).user;
+    await releaseService.downloadRelease(
+      req.params.id,
+      res,
+      user._id.toString(),
+    );
   }),
 );
 
