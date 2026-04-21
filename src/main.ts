@@ -94,6 +94,9 @@ const logEnv = () => {
   console.log(`SWAGGER_PATH: ${env.SWAGGER_PATH}`);
   console.log(`WHITE_LISTED_DOMAINS: ${env.WHITE_LISTED_DOMAINS}`);
   console.log(`MONGODB_URL: ${env.MONGODB_URL}`);
+  console.log(
+    `MAIL_SMTP: ${env.MAIL_USER && env.MAIL_PASS ? "configured (share emails enabled)" : "NOT configured — share will create links only"}`,
+  );
 };
 
 bootstrap();
