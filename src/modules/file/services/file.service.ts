@@ -116,19 +116,48 @@ export default class FileService {
 
     console.log("🔗 Generated Share Link:", shareLink, viewerLink, downloadLink);
 
-    if (payload.recipients && payload.recipients.length > 0) {
+    const recipientCount = payload.recipients?.length ?? 0;
+    let mailDelivery:
+      | {
+          attempted: boolean;
+          sent: boolean;
+          recipientCount: number;
+          skipReason?: "NO_SMTP_CONFIG";
+          errorMessage?: string;
+        }
+      | undefined;
+
+    if (recipientCount > 0) {
       if (!env.MAIL_USER || !env.MAIL_PASS) {
         console.error("❌ MAIL ERROR: Chưa cấu hình MAIL_USER hoặc MAIL_PASS trong .env");
+        mailDelivery = {
+          attempted: false,
+          sent: false,
+          recipientCount,
+          skipReason: "NO_SMTP_CONFIG",
+        };
       } else {
-        this.sendShareEmails(
-          payload.recipients,
-          fileName,
-          viewerLink,
-          payload.accessLevel, 
-          downloadLink,
-          payload.note,
-
-        ).catch((err) => console.error("❌ Email Delivery Error:", err));
+        try {
+          await this.sendShareEmails(
+            payload.recipients,
+            fileName,
+            viewerLink,
+            payload.accessLevel,
+            downloadLink,
+            payload.note,
+          );
+          mailDelivery = { attempted: true, sent: true, recipientCount };
+          console.log(`✅ Share emails delivered to ${recipientCount} recipient(s)`);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          console.error("❌ Email Delivery Error:", err);
+          mailDelivery = {
+            attempted: true,
+            sent: false,
+            recipientCount,
+            errorMessage,
+          };
+        }
       }
     }
 
@@ -136,6 +165,7 @@ export default class FileService {
       share: shareRecord,
       shareLink,
       token,
+      mailDelivery,
     };
   }
 

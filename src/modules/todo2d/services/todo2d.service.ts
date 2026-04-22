@@ -73,6 +73,11 @@ export default class Todo2DService {
       .populate("fileId", "name"); 
   }
 
+  async getTodoById(id: string) {
+    return await TodoModel.findOne({ _id: id, isDeleted: false })
+      .populate("fileId", "name");
+  }
+
   // Cập nhật Todo
   async updateTodo(id: string, data: Partial<ITodo>) {
     const prev = await TodoModel.findById(id);

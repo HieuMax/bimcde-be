@@ -164,12 +164,28 @@ Todo2DController.put(
   })
 );
 
-// GET /api/todos/project/:projectId
+// GET /api/todos2d/project/:projectId
 Todo2DController.get(
   "/project/:projectId",
   asyncHandler(async (req: Request, res: Response) => {
     const list = await todo2DService.getTodosByProject(req.params.projectId);
     res.status(200).json(list);
+  })
+);
+
+// GET /api/todos2d/:id — mở chi tiết từ dashboard (sau route /file và /project)
+Todo2DController.get(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (id === "file" || id === "project") {
+      throw new AppError("Not found", 404);
+    }
+    const doc = await todo2DService.getTodoById(id);
+    if (!doc) {
+      throw new AppError("Todo not found", 404);
+    }
+    res.status(200).json(doc);
   })
 );
 
