@@ -3,6 +3,7 @@ import { authenticate } from "../../../middlewares/authMiddlewares";
 import TeamService from "../services/team.services";
 import groupModel from "../schemas/group.schema";
 import AccountModel from "../../account/schemas/account.schema";
+import ProjectModel from "../../project/schemas/project.schema";
 import {
   actorFromReq,
   logActivitySafe,
@@ -160,6 +161,7 @@ TeamController.post(
       );
       const actor = actorFromReq(req);
       const group = await groupModel.findById(req.params.groupId).lean();
+
       if (actor && group) {
         const n = Array.isArray(result) ? result.length : 0;
         await logActivitySafe({
@@ -175,6 +177,13 @@ TeamController.post(
           description: `Added ${n} member(s) to group`,
           metaData: { addedCount: n },
         });
+
+        let projectName = projectIdToString(group.projectId);
+        const project = await ProjectModel.findById(group.projectId).select("name").lean();
+        if (project?.name) {
+          projectName = project.name;
+        }
+
         // create in-app notifications for each added user
         try {
           const added = Array.isArray(result) ? result : [];
@@ -183,7 +192,7 @@ TeamController.post(
             await notificationService.createNotification({
               userId: targetUserId as any,
               title: `You were added to group ${group.name ?? ""}`,
-              content: `You have been added to group ${group.name ?? ""} in project ${projectIdToString(group.projectId)} by ${actor.fullName ?? actor.email ?? "a user"}`,
+              content: `You have been added to group ${group.name ?? ""} in project ${projectName} by ${actor.fullName ?? actor.email ?? "a user"}`,
               isRead: false,
               url: `/projects/${projectIdToString(group.projectId)}/data?groupId=${group._id}`,
             } as any);
@@ -403,12 +412,19 @@ TeamController.post(
             description: `Linked user to ${result.length} group(s)`,
             metaData: { targetUserId: req.params.userId, groupIds: req.body?.groupIds },
           });
+
+          let projectName = projectIdToString(g.projectId);
+          const project = await ProjectModel.findById(g.projectId).select("name").lean();
+          if (project?.name) {
+            projectName = project.name;
+          }
+
           // notify the user that they were added to groups
           try {
             await notificationService.createNotification({
               userId: req.params.userId as any,
               title: `You were added to ${result.length} group(s)`,
-              content: `You have been added to ${result.length} group(s) in project ${projectIdToString(g.projectId)} by ${actor.fullName ?? actor.email ?? "a user"}`,
+              content: `You have been added to ${result.length} group(s) in project ${projectName} by ${actor.fullName ?? actor.email ?? "a user"}`,
               isRead: false,
               url: `/projects/${projectIdToString(g.projectId)}`,
             } as any);
