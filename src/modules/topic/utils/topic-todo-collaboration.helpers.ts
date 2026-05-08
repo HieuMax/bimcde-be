@@ -4,6 +4,7 @@ import Todo2DModel from "../../todo2d/schemas/todo2d.schema";
 import Todo3DModel from "../../todo3d/schemas/todo.schema";
 import TodoModel from "../../todo/todo/schemas/todo.schema";
 import TopicItemModel from "../schemas/topic-item.schema";
+import FileModel from "../../file/schemas/file.schema";
 
 export async function countNonTerminalTodosForTopic(
   topicId: string,
@@ -45,7 +46,12 @@ export async function countOpenTodosLinkedToFile(
   const pid = new Types.ObjectId(projectId);
   const fid = new Types.ObjectId(fileId);
 
-  const topicOr = [{ fileId: fid }, { "attachments.fileId": fileId }];
+  const topicOr = [
+    { fileId: fid },
+    { "attachments.fileId": fileId },
+    // Legacy/alternate relation: topic references array stores File ObjectIds.
+    { references: fid },
+  ];
   const topicDocs = await TopicItemModel.find({
     projectId: pid,
     $or: topicOr,
@@ -55,7 +61,25 @@ export async function countOpenTodosLinkedToFile(
 
   const topicIds = topicDocs.map((t) => (t as { _id: Types.ObjectId })._id);
 
-  const [openTodo2DCount, openTodo3DCount, openDashboardTodoCount] =
+  // IFC viewer todos can be linked directly by object selection without topicRef.
+  // Match direct links via modelId and fallback via fileUrl snapshots from file versions.
+  const fileDoc = await FileModel.findById(fid)
+    .select("versions.location")
+    .lean();
+  const versionLocations = Array.from(
+    new Set(
+      ((fileDoc as { versions?: Array<{ location?: string }> } | null)?.versions ??
+        [])
+        .map((v) => String(v.location ?? "").trim())
+        .filter((s) => s.length > 0),
+    ),
+  );
+  const directIfcLinkedOr =
+    versionLocations.length > 0
+      ? [{ "items.modelId": fileId }, { "items.fileUrl": { $in: versionLocations } }]
+      : [{ "items.modelId": fileId }];
+
+  const [openTodo2DCount, openTodo3DCount, openDashboardTodoCount, openDirectTodo3DCount, openDirectBoardTodoCount] =
     await Promise.all([
       Todo2DModel.countDocuments({
         projectId,
@@ -77,9 +101,25 @@ export async function countOpenTodosLinkedToFile(
             status: { $nin: ["Done", "Closed", "done", "closed"] },
           })
         : 0,
+      Todo3DModel.countDocuments({
+        projectId: pid,
+        status: { $nin: ["Done", "Closed"] },
+        $or: directIfcLinkedOr,
+      }),
+      TodoModel.countDocuments({
+        projectId: pid,
+        status: { $nin: ["Done", "Closed", "done", "closed"] },
+        $or: directIfcLinkedOr,
+      }),
     ]);
 
-  return openTodo2DCount + openTodo3DCount + openDashboardTodoCount;
+  return (
+    openTodo2DCount +
+    openTodo3DCount +
+    openDashboardTodoCount +
+    openDirectTodo3DCount +
+    openDirectBoardTodoCount
+  );
 }
 
 /**
@@ -96,6 +136,7 @@ export async function assertFileSafeToPublish(
   const topicOr = [
     { fileId: fid },
     { "attachments.fileId": fileId },
+    { references: fid },
   ];
 
   const topicDocs = await TopicItemModel.find({

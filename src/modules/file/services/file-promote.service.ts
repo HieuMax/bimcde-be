@@ -369,6 +369,7 @@ export default class FilePromoteService {
       $or: [
         { fileId: new Types.ObjectId(fidStr) },
         { "attachments.fileId": fidStr },
+        { references: new Types.ObjectId(fidStr) },
       ],
     })
       .select({ _id: 1, status: 1 })
