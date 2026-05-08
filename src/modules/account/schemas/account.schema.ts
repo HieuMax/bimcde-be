@@ -1,5 +1,4 @@
 import { IAccount } from "../interfaces/account.interface";
-import { time } from "console";
 import { model, Schema } from "mongoose";
 import bcryp from "bcryptjs";
 
@@ -29,7 +28,12 @@ const accountSchema = new Schema<IAccount>(
       },
       default: "user",
     },
-    phone: { type: String },
+    phone: {
+      type: String,
+      unique: [true, "Phone must be unique"],
+      sparse: true,
+      trim: true,
+    },
     resetPasswordToken: { type: String },
     resetPasswordExpire: { type: Date },
   },

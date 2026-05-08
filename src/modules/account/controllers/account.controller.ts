@@ -18,9 +18,9 @@ AccountController.post("/register", async (req: Request, res: Response) => {
       result,
     });
   } catch (error: any) {
-    res.status(500).json({
+    res.status(400).json({
       success: false,
-      message: "Xảy ra lỗi khi đăng ký tài khoản.",
+      message: error?.message || "Xảy ra lỗi khi đăng ký tài khoản.",
       error: error.message,
     });
   }
