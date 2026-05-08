@@ -12,7 +12,7 @@ import {
   countOpenTodosLinkedToFile,
 } from "../../topic/utils/topic-todo-collaboration.helpers";
 import { isTopicStatusUnresolvedForPublish } from "../../../constants/topic-todo-workflow";
-import notificationModel from "../../notification/schemas/notification.schemas"; 
+import notificationModel from "../../notification/schemas/notification.schemas";
 import { getIO } from "../../../lib/socket.lib";
 import { AppError } from "../../../utils/AppError";
 import {
@@ -177,7 +177,7 @@ export default class FilePromoteService {
     const base = fullName.slice(0, -ext.length);
     let n = 1;
     let candidate = fullName;
-    for (;;) {
+    for (; ;) {
       const dup = await FileModel.findOne({
         folderId,
         name: candidate,
@@ -470,7 +470,11 @@ export default class FilePromoteService {
       .find({ groupId: effGroup, role: "GROUP_LEADER" })
       .select("userId")
       .lean();
+
     if (leaders.length > 0) {
+      const projectIdStr = latest.projectId.toString();
+      const folderIdStr = latest.folderId.toString();
+      const fileUrl = `/projects/${projectIdStr}/data?folderId=${folderIdStr}`;
       const notifs = leaders
         .map((l) => l.userId)
         .filter((id) => id && !id.equals(userId))
@@ -478,6 +482,7 @@ export default class FilePromoteService {
           userId: leaderId,
           title: "File submitted for review",
           content: `${latest.name} (v${latest.currentVersion}) was submitted for review.`,
+          url: fileUrl,
           isRead: false,
         }));
       if (notifs.length > 0) {
