@@ -13,15 +13,20 @@ import AccountModel from "../schemas/account.schema";
 import { sendEmail } from "../../../lib/mailer.lib";
 import { resetPasswordTemplate } from "../../../templates/templateEmail";
 
-type AccountData = Pick<IAccount, "email" | "password" | "fullName">;
+type AccountData = Pick<IAccount, "email" | "password" | "fullName" | "phone">;
 
 export default class AccountService {
   // Đăng ký tài khoản mới
   async register(accountData: AccountData) {
     try {
+      const normalizedEmail = String(accountData.email || "")
+        .trim()
+        .toLowerCase();
+      const normalizedPhone = String(accountData.phone || "").trim();
+
       // Kiểm tra dữ liệu đầu vào
       if (
-        !accountData.email ||
+        !normalizedEmail ||
         !accountData.password ||
         !accountData.fullName
       ) {
@@ -37,15 +42,27 @@ export default class AccountService {
 
       //   Kiểm tra email đã tồn tại chưa
       const existingAccount = await AccountModel.findOne({
-        email: accountData.email,
+        email: normalizedEmail,
       });
       if (existingAccount) {
         throw new Error("Email đã tồn tại.");
       }
 
+      // Kiểm tra số điện thoại đã tồn tại chưa (nếu người dùng có nhập)
+      if (normalizedPhone) {
+        const existingPhoneAccount = await AccountModel.findOne({
+          phone: normalizedPhone,
+        });
+        if (existingPhoneAccount) {
+          throw new Error("Số điện thoại đã tồn tại.");
+        }
+      }
+
       //   Tạo tài khoản mới
       const newAccount = new AccountModel({
         ...accountData,
+        email: normalizedEmail,
+        phone: normalizedPhone || undefined,
       });
       newAccount.password = await bcrypt.hash(accountData.password, 10);
 
